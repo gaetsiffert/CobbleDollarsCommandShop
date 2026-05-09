@@ -46,9 +46,12 @@ authors="Narrnouille"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Addon for CobbleDollars that only adds named custom shops opened by command.
-Use it for moderator commands or CustomNPCs buttons that run /npcshop.
+Server-side addon for CobbleDollars that opens named custom CobbleDollars shops by command.
+It adds per-player persistent stock, optional automatic restocks, and is meant for moderator tools or CustomNPCs buttons.
 '''
+
+[[mixins]]
+config="${mod_id}.mixins.json"
 
 # The [[accessTransformers]] block allows you to declare where your AT file is.
 # If this block is omitted, a fallback attempt will be made to load an AT from META-INF/accesstransformer.cfg

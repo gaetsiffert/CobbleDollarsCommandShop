@@ -3,75 +3,138 @@
 
 Addon NeoForge 1.21.1 pour CobbleDollars.
 
-Il ajoute uniquement des boutiques CobbleDollars personnalisees ouvertes par commande.
-Il ne remplace pas CobbleDollars et ne gere pas les PNJ par lui-meme.
-Les achats passent par un vrai marchand CobbleDollars cache, donc l'item est bien donne et la monnaie bien retiree.
+Il ajoute uniquement des shops CobbleDollars personnalises appeles par commande.
+Il ne remplace pas CobbleDollars, n'ajoute pas de PNJ, et n'utilise plus de merchant temporaire.
+Le flux d'achat repasse par le serveur avec un stock persistant par joueur.
 
 ## Commandes
 
-- `/npcshop open <shop>`
-- `/npcshop open <shop> <joueur>`
-- `/npcshop list`
-- `/npcshop where`
+- `/cdshops open <shop>`
+- `/cdshops open <shop> <joueur>`
+- `/cdshops restock <shop> all <joueurs>`
+- `/cdshops restock <shop> offer <offer> <joueurs>`
+- `/cdshops stock <shop> <joueur>`
+- `/cdshops list`
+- `/cdshops where`
+
+Les joueurs normaux ne peuvent pas lancer `/cdshops`.
+Un moderateur peut l'utiliser, et un bouton CustomNPCs peut l'executer pour ouvrir le shop chez le joueur cible.
+
+## Utilisation avec CustomNPCs
+
+Depuis un PNJ ou la console, il faut fournir la cible explicitement.
+
+Exemple script :
+
+`npc.executeCommand("cdshops open armurier " + player.getName());`
 
 ## Dossier des boutiques
 
 Les boutiques sont lues depuis :
 
-`run/config/cobbledollarscommandshops/shops`
+`config/cobbledollarscommandshops/shops`
 
-Exemples fournis :
+La bank personnalisee est lue depuis :
 
-- `armurier.json`
-- `example.json`
-
-## Utilisation avec CustomNPCs
-
-Depuis un PNJ ou la console, il faut maintenant fournir la cible explicitement.
-
-Exemple script :
-
-`npc.executeCommand("npcshop open armurier " + player.getName());`
-
-Les joueurs normaux ne peuvent pas lancer `/npcshop` eux-memes.
-Un moderateur peut l'utiliser, et un bouton CustomNPCs peut l'executer pour ouvrir le shop chez le joueur cible.
+`config/cobbledollarscommandshops/bank.json`
 
 ## Format JSON
 
 Exemple :
 
 ```json
-[
-  {
-    "Armes": [
-      {
-        "item": "minecraft:iron_sword",
-        "count": 1,
-        "price": 90
-      },
-      {
-        "item": "minecraft:golden_apple",
-        "count": 4,
-        "price": 125,
-        "stock": 12
-      }
-    ]
-  }
-]
+{
+  "id": "armurier",
+  "categories": [
+    {
+      "name": "Armes",
+      "offers": [
+        {
+          "id": "epee_fer",
+          "item": "minecraft:iron_sword",
+          "count": 1,
+          "price": 90
+        },
+        {
+          "id": "epee_diamant",
+          "item": "minecraft:diamond_sword",
+          "count": 1,
+          "price": 450,
+          "stock": 2,
+          "restock": {
+            "type": "interval",
+            "amount": 1,
+            "every_seconds": 600
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 Champs supportes :
 
-- `item`: identifiant exact de l'item a vendre
-- `count`: quantite donnee a l'achat, `1` par defaut
-- `price`: prix exact en CobbleDollars
-- `stock`: optionnel, `-1` par defaut pour un stock illimite
+- `id`: identifiant du shop appele par la commande
+- `categories[].name`: nom de categorie affiche dans le shop
+- `offers[].id`: identifiant stable de l'offre, utilise pour le stock persistant
+- `offers[].item`: identifiant exact de l'item a vendre
+- `offers[].count`: quantite donnee a l'achat, `1` par defaut
+- `offers[].price`: prix exact en CobbleDollars
+- `offers[].stock`: stock maximum et stock initial du joueur, `-1` ou absent pour illimite
 
-Notes de comportement :
+Restocks supportes :
 
-- le stock eventuel est local a l'ouverture du shop et n'est pas persistant entre deux ouvertures
-- un joueur normal ne peut pas lancer `/npcshop` lui-meme
-- un moderateur peut l'utiliser, et un bouton CustomNPCs peut l'executer pour ouvrir le shop chez le joueur cible
+- `interval`: ajoute `amount` toutes les `every_seconds`, jusqu'au stock max
+- `daily_reset`: remet le stock au maximum chaque jour a `hour`:`minute`
+
+Exemple de reset journalier :
+
+```json
+{
+  "id": "daily_apple",
+  "item": "minecraft:golden_apple",
+  "price": 125,
+  "stock": 3,
+  "restock": {
+    "type": "daily_reset",
+    "hour": 4,
+    "minute": 0,
+    "time_zone": "Europe/Paris"
+  }
+}
+```
+
+Notes :
+
+- le stock est persistant par joueur
+- le restock est calcule cote serveur
+- l'ancien format JSON par tableau reste accepte pour compatibilite, mais il reutilise alors le nom de fichier comme id du shop
+
+## Format bank.json
+
+Exemple :
+
+```json
+{
+  "offers": [
+    {
+      "item": "minecraft:iron_ingot",
+      "price": 8
+    },
+    {
+      "item": "minecraft:diamond",
+      "price": 75
+    }
+  ]
+}
+```
+
+Champs supportes :
+
+- `offers[].item`: item autorise a la vente dans la bank
+- `offers[].price`: prix unitaire rendu au joueur
+- `offers[].count`: optionnel, `1` par defaut
 
 ## Build
 

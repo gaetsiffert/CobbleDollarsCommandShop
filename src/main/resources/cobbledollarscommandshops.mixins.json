@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "fr.cobbledollars.commandshops.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "BuyHandlerMixin",
+    "OpenBankHandlerMixin",
+    "OpenShopHandlerMixin",
+    "SellHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

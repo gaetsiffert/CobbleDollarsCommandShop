@@ -140,7 +140,9 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 
-    compileOnly fileTree(dir: 'run/mods', include: ['CobbleDollars-*.jar'])
+    compileOnly fileTree(dir: 'run/mods', include: ['CobbleDollars-*.jar', 'Cobblemon-*.jar'])
+    compileOnly "org.spongepowered:mixin:0.8.5"
+    annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
