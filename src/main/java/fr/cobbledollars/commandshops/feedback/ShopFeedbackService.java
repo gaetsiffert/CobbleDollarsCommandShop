@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.math.BigInteger;
 
 import fr.cobbledollars.commandshops.network.ClientUiSync;
-import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -41,9 +40,7 @@ public final class ShopFeedbackService {
             ItemStack bundleTemplate,
             int amount,
             BigInteger totalPrice,
-            int stockLeft,
-            PlayerShopStockData.RestockPreview restockPreview,
-            long nowMillis
+            int stockLeft
     ) {
         emit(player, config.buySuccess(), FeedbackFormatter.buySuccess(
                 bundleTemplate,
@@ -53,12 +50,7 @@ public final class ShopFeedbackService {
         ), SUCCESS_COLOR, 2800);
     }
 
-    public static void onBuyFailure(
-            ServerPlayer player,
-            BuyFailureReason reason,
-            PlayerShopStockData.RestockPreview restockPreview,
-            long nowMillis
-    ) {
+    public static void onBuyFailure(ServerPlayer player, BuyFailureReason reason) {
         emit(player, config.buyFailure(), FeedbackFormatter.buyFailure(
                 reason
         ), FAILURE_COLOR, 3200);
@@ -78,7 +70,7 @@ public final class ShopFeedbackService {
         boolean chatRequested = eventConfig.channels().contains(FeedbackChannel.CHAT) || (actionBarRequested && !actionBarVisible);
         boolean textRequested = actionBarRequested || chatRequested;
 
-        if (textRequested && ClientUiSync.sendOverlayMessage(player, message.getString(), color, ttlMillis)) {
+        if (textRequested && ClientUiSync.sendOverlayMessage(player, message, color, ttlMillis)) {
             playSound(player, eventConfig);
             return;
         }

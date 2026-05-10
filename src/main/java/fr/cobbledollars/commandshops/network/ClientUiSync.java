@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.registration.NetworkRegistry;
@@ -13,7 +14,7 @@ public final class ClientUiSync {
     private ClientUiSync() {
     }
 
-    public static boolean sendOverlayMessage(ServerPlayer player, String message, int color, int ttlMillis) {
+    public static boolean sendOverlayMessage(ServerPlayer player, Component message, int color, int ttlMillis) {
         if (!NetworkRegistry.hasChannel(player.connection, ClientOverlayMessagePayload.TYPE.id())) {
             return false;
         }

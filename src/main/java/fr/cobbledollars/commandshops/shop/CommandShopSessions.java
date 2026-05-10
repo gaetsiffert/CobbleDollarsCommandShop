@@ -153,7 +153,7 @@ public final class CommandShopSessions {
         if (offerDefinition == null) {
             sendFullSync(player, session, currentRuntimeShop);
             syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_UNAVAILABLE, PlayerShopStockData.RestockPreview.none(), nowMillis);
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_UNAVAILABLE);
             return true;
         }
 
@@ -161,7 +161,7 @@ public final class CommandShopSessions {
         if (expectedOffer == null || !expectedOffer.equalsWithoutStock(packet.getOffer())) {
             sendFullSync(player, session, currentRuntimeShop);
             syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_CHANGED, PlayerShopStockData.RestockPreview.none(), nowMillis);
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_CHANGED);
             return true;
         }
 
@@ -173,7 +173,7 @@ public final class CommandShopSessions {
         int bundleSize = Math.max(1, expectedOffer.getItem().getCount());
         int maxBundleAmount = PlayerExtensionKt.getMaxAmountObtainable(player, expectedOffer.getItem()) / bundleSize;
         if (maxBundleAmount <= 0) {
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE, PlayerShopStockData.RestockPreview.none(), nowMillis);
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
             return true;
         }
         amount = Math.min(amount, Math.max(0, maxBundleAmount));
@@ -182,12 +182,7 @@ public final class CommandShopSessions {
         if (currentStock == 0) {
             sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), 0);
             syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
-            ShopFeedbackService.onBuyFailure(
-                    player,
-                    BuyFailureReason.OUT_OF_STOCK,
-                    stockData.previewNextRestock(player.getUUID(), shop, offerDefinition, nowMillis),
-                    nowMillis
-            );
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
         if (currentStock > 0) {
@@ -200,14 +195,12 @@ public final class CommandShopSessions {
         BigInteger totalPrice = expectedOffer.getPrice().multiply(BigInteger.valueOf(amount));
         BigInteger balance = PlayerExtensionKt.getCobbleDollars(player);
         if (balance.compareTo(totalPrice) < 0) {
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_MONEY, PlayerShopStockData.RestockPreview.none(), nowMillis);
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_MONEY);
             return true;
         }
 
-        PlayerShopStockData.RestockPreview restockPreview = PlayerShopStockData.RestockPreview.none();
         if (offerDefinition.hasFiniteStock()) {
             stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
-            restockPreview = stockData.previewNextRestock(player.getUUID(), shop, offerDefinition, nowMillis);
         }
 
         PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
@@ -221,7 +214,7 @@ public final class CommandShopSessions {
             sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), updatedStock);
         }
         syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
-        ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock, restockPreview, nowMillis);
+        ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
         updateSessionRefreshState(server, player, session, shop);
         return true;
     }
@@ -323,7 +316,7 @@ public final class CommandShopSessions {
             }
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sell items from custom bank for {}", player.getGameProfile().getName(), exception);
-            player.sendSystemMessage(Component.literal("Failed to load custom bank config: " + exception.getMessage()));
+            player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.bank_config_load_failed", exception.getMessage()));
             return true;
         }
 
@@ -345,7 +338,7 @@ public final class CommandShopSessions {
         }
 
         cleanupPlayer(server, player.getUUID());
-        player.sendSystemMessage(Component.literal("Shop '" + session.shopId() + "' no longer exists after reload."));
+        player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", session.shopId()));
         return null;
     }
 
@@ -500,7 +493,7 @@ public final class CommandShopSessions {
             new SyncShopConfigPacket(runtimeShop, runtimeBank).sendToPlayer(player);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sync custom bank config for {}", player.getGameProfile().getName(), exception);
-            player.sendSystemMessage(Component.literal("Failed to load custom bank config: " + exception.getMessage()));
+            player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.bank_config_load_failed", exception.getMessage()));
         }
     }
 

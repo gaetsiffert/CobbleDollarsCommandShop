@@ -3,33 +3,38 @@ package fr.cobbledollars.commandshops.client;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
+import net.minecraft.network.chat.Component;
 
 public final class ClientUiFormatter {
-    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss z");
+    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss z", Locale.ROOT);
 
     private ClientUiFormatter() {
     }
 
-    public static String formatSelectedOfferStatus(ShopUiStatePayload.OfferState offerState, long nowMillis) {
+    public static Component formatSelectedOfferStatus(ShopUiStatePayload.OfferState offerState, long nowMillis) {
         if (offerState == null) {
             return null;
         }
         if (offerState.hasNextRestock()) {
-            return "Next restock: +" + offerState.nextRestockAmount() + " at " + formatRestockMoment(offerState, nowMillis) + ".";
+            return Component.translatable(
+                    "cobbledollarscommandshops.ui.selected_offer.next_restock",
+                    offerState.nextRestockAmount(),
+                    formatAbsoluteRestockTime(offerState),
+                    formatDuration(Math.max(0L, offerState.nextRestockAtMillis() - nowMillis))
+            );
         }
         if (offerState.stock() == 0) {
-            return "Selected offer is out of stock.";
+            return Component.translatable("cobbledollarscommandshops.ui.selected_offer.out_of_stock");
         }
         return null;
     }
 
-    private static String formatRestockMoment(ShopUiStatePayload.OfferState offerState, long nowMillis) {
+    private static String formatAbsoluteRestockTime(ShopUiStatePayload.OfferState offerState) {
         ZoneId zoneId = resolveZoneId(offerState.restockZoneId());
-        long nextRestockAtMillis = offerState.nextRestockAtMillis();
-        return TIME_FORMAT.format(Instant.ofEpochMilli(nextRestockAtMillis).atZone(zoneId))
-                + " (in " + formatDuration(Math.max(0L, nextRestockAtMillis - nowMillis)) + ")";
+        return TIME_FORMAT.format(Instant.ofEpochMilli(offerState.nextRestockAtMillis()).atZone(zoneId));
     }
 
     private static ZoneId resolveZoneId(String zoneId) {
@@ -43,18 +48,18 @@ public final class ClientUiFormatter {
         }
     }
 
-    private static String formatDuration(long deltaMillis) {
+    private static Component formatDuration(long deltaMillis) {
         long totalSeconds = Math.max(0L, deltaMillis / 1000L);
         long hours = totalSeconds / 3600L;
         long minutes = (totalSeconds % 3600L) / 60L;
         long seconds = totalSeconds % 60L;
 
         if (hours > 0L) {
-            return hours + "h " + minutes + "m " + seconds + "s";
+            return Component.translatable("cobbledollarscommandshops.time.duration.hms", hours, minutes, seconds);
         }
         if (minutes > 0L) {
-            return minutes + "m " + seconds + "s";
+            return Component.translatable("cobbledollarscommandshops.time.duration.ms", minutes, seconds);
         }
-        return seconds + "s";
+        return Component.translatable("cobbledollarscommandshops.time.duration.s", seconds);
     }
 }

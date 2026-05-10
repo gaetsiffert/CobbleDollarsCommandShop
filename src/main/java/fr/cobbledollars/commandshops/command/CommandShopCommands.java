@@ -23,13 +23,18 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 public final class CommandShopCommands {
-    private static final DynamicCommandExceptionType SHOP_ERROR = new DynamicCommandExceptionType(message -> Component.literal(String.valueOf(message)));
-    private static final SimpleCommandExceptionType TARGET_REQUIRED = new SimpleCommandExceptionType(Component.literal("This source must specify a target player: /cdshops open <shop> <player>."));
+    private static final DynamicCommandExceptionType SHOP_ERROR = new DynamicCommandExceptionType(
+            message -> message instanceof Component component ? component : Component.literal(String.valueOf(message))
+    );
+    private static final SimpleCommandExceptionType TARGET_REQUIRED = new SimpleCommandExceptionType(
+            Component.translatable("cobbledollarscommandshops.command.target_required")
+    );
 
     private CommandShopCommands() {
     }
@@ -104,7 +109,7 @@ public final class CommandShopCommands {
             }
         }
 
-        source.sendSuccess(() -> Component.literal("Opened shop '" + shop.id() + "' for " + targets.size() + " player(s)."), false);
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.open.success", shop.id(), targets.size()), false);
         return targets.size();
     }
 
@@ -113,14 +118,16 @@ public final class CommandShopCommands {
             ShopRegistry.ReloadSummary summary = ShopRegistry.reload(source.getServer().registryAccess());
             ShopFeedbackService.reload();
             CommandShopSessions.refreshAllSessions(source.getServer());
-            source.sendSuccess(() -> Component.literal(
-                    "Reloaded " + summary.shopCount() + " shop(s), "
-                            + summary.localBankCount() + " local bank(s), global bank '" + summary.globalBankFile()
-                            + "', feedback config '" + FeedbackFiles.getConfigFile() + "'."), 
+            source.sendSuccess(() -> Component.translatable(
+                            "cobbledollarscommandshops.command.reload.success",
+                            summary.shopCount(),
+                            summary.localBankCount(),
+                            String.valueOf(summary.globalBankFile()),
+                            String.valueOf(FeedbackFiles.getConfigFile())),
                     true);
             return 1;
         } catch (Exception exception) {
-            throw SHOP_ERROR.create("Failed to reload shops: " + exception.getMessage());
+            throw SHOP_ERROR.create(Component.translatable("cobbledollarscommandshops.command.reload.failure", exception.getMessage()));
         }
     }
 
@@ -136,7 +143,7 @@ public final class CommandShopCommands {
             CommandShopSessions.refreshPlayerSession(target);
         }
 
-        source.sendSuccess(() -> Component.literal("Restocked all finite offers from shop '" + shop.id() + "' for " + targets.size() + " player(s)."), true);
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.restock_shop.success", shop.id(), targets.size()), true);
         return targets.size();
     }
 
@@ -144,11 +151,11 @@ public final class CommandShopCommands {
         ShopDefinition shop = loadShop(shopId);
         ShopOfferDefinition offer = shop.getOfferById(offerId);
         if (offer == null) {
-            throw SHOP_ERROR.create("Offer '" + offerId + "' was not found in shop '" + shop.id() + "'.");
+            throw SHOP_ERROR.create(Component.translatable("cobbledollarscommandshops.command.offer_not_found", offerId, shop.id()));
         }
 
         if (!offer.hasFiniteStock()) {
-            throw SHOP_ERROR.create("Offer '" + offer.id() + "' in shop '" + shop.id() + "' has unlimited stock.");
+            throw SHOP_ERROR.create(Component.translatable("cobbledollarscommandshops.command.offer_unlimited_stock", offer.id(), shop.id()));
         }
 
         long nowMillis = System.currentTimeMillis();
@@ -160,20 +167,22 @@ public final class CommandShopCommands {
             CommandShopSessions.refreshPlayerSession(target);
         }
 
-        source.sendSuccess(() -> Component.literal("Restocked offer '" + offer.id() + "' from shop '" + shop.id() + "' for " + targets.size() + " player(s)."), true);
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.restock_offer.success", offer.id(), shop.id(), targets.size()), true);
         return targets.size();
     }
 
     private static int showStock(CommandSourceStack source, String shopId, ServerPlayer target) throws CommandSyntaxException {
         ShopDefinition shop = loadShop(shopId);
         if (target.getServer() == null) {
-            throw SHOP_ERROR.create("Target player is not attached to a server.");
+            throw SHOP_ERROR.create(Component.translatable("cobbledollarscommandshops.command.target_not_attached"));
         }
         PlayerShopStockData stockData = PlayerShopStockData.get(target.getServer());
         long nowMillis = System.currentTimeMillis();
 
-        StringBuilder builder = new StringBuilder();
-        builder.append("Stocks for ").append(target.getGameProfile().getName()).append(" in shop '").append(shop.id()).append("': ");
+        MutableComponent message = Component.empty().append(
+                Component.translatable("cobbledollarscommandshops.command.stock.prefix", target.getGameProfile().getName(), shop.id())
+        );
+        StringBuilder details = new StringBuilder();
 
         boolean appended = false;
         for (ShopOfferDefinition offer : shop.offers()) {
@@ -182,33 +191,39 @@ public final class CommandShopCommands {
             }
 
             if (appended) {
-                builder.append(", ");
+                details.append(", ");
             }
-            builder.append(offer.id()).append("=").append(stockData.resolveStock(target.getUUID(), shop, offer, nowMillis));
+            details.append(offer.id()).append("=").append(stockData.resolveStock(target.getUUID(), shop, offer, nowMillis));
             appended = true;
         }
 
         if (!appended) {
-            builder.append("no finite offers");
+            message.append(Component.translatable("cobbledollarscommandshops.command.stock.none"));
+        } else {
+            message.append(Component.literal(details.toString()));
         }
 
-        source.sendSuccess(() -> Component.literal(builder.toString()), false);
+        source.sendSuccess(() -> message, false);
         return 1;
     }
 
     private static int listShops(CommandSourceStack source) {
         List<String> shopIds = ShopRegistry.listShopIds();
         if (shopIds.isEmpty()) {
-            source.sendFailure(Component.literal("No shop folders found in " + ShopRegistry.getShopDirectory()));
+            source.sendFailure(Component.translatable("cobbledollarscommandshops.command.list.none", String.valueOf(ShopRegistry.getShopDirectory())));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Available shops: " + String.join(", ", shopIds)), false);
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.list.available", String.join(", ", shopIds)), false);
         return shopIds.size();
     }
 
     private static int showDirectory(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Shops directory: " + ShopRegistry.getShopDirectory() + " | global bank: " + ShopRegistry.getGlobalBankFile()), false);
+        source.sendSuccess(() -> Component.translatable(
+                "cobbledollarscommandshops.command.where",
+                String.valueOf(ShopRegistry.getShopDirectory()),
+                String.valueOf(ShopRegistry.getGlobalBankFile())
+        ), false);
         return 1;
     }
 
@@ -234,14 +249,14 @@ public final class CommandShopCommands {
     }
 
     private static ShopDefinition loadShop(String shopId) throws CommandSyntaxException {
-        try {
-            ShopDefinition shop = ShopRegistry.getShop(shopId);
-            if (shop == null) {
-                throw new IllegalArgumentException("Shop '" + shopId + "' was not found in " + ShopRegistry.getShopDirectory() + ".");
-            }
-            return shop;
-        } catch (IllegalArgumentException exception) {
-            throw SHOP_ERROR.create(exception.getMessage());
+        ShopDefinition shop = ShopRegistry.getShop(shopId);
+        if (shop == null) {
+            throw SHOP_ERROR.create(Component.translatable(
+                    "cobbledollarscommandshops.command.shop_not_found",
+                    shopId,
+                    String.valueOf(ShopRegistry.getShopDirectory())
+            ));
         }
+        return shop;
     }
 }

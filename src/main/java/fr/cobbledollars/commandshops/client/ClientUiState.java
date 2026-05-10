@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -91,7 +92,7 @@ public final class ClientUiState {
 
         if (event.getScreen() instanceof ShopScreen shopScreen) {
             ShopUiStatePayload.OfferState offerState = getSelectedOfferState(shopScreen);
-            String statusLine = ClientUiFormatter.formatSelectedOfferStatus(offerState, nowMillis);
+            Component statusLine = ClientUiFormatter.formatSelectedOfferStatus(offerState, nowMillis);
             if (statusLine != null) {
                 drawCenteredLine(guiGraphics, minecraft.font, statusLine, 16777045, nextLineY);
             }
@@ -121,10 +122,11 @@ public final class ClientUiState {
         return overlayMessage != null && overlayMessage.expiresAtMillis() > nowMillis;
     }
 
-    private static void drawCenteredLine(GuiGraphics guiGraphics, Font font, String text, int color, int y) {
+    private static void drawCenteredLine(GuiGraphics guiGraphics, Font font, Component text, int color, int y) {
+        String renderedText = text.getString();
         int screenWidth = Minecraft.getInstance().getWindow().getGuiScaledWidth();
-        int x = (screenWidth - font.width(text)) / 2;
-        guiGraphics.drawString(font, text, x, y, color, true);
+        int x = (screenWidth - font.width(renderedText)) / 2;
+        guiGraphics.drawString(font, renderedText, x, y, color, true);
     }
 
     @SuppressWarnings("unchecked")
@@ -138,6 +140,6 @@ public final class ClientUiState {
     private record SessionState(UUID sessionUuid, Map<OfferKey, ShopUiStatePayload.OfferState> offersByKey) {
     }
 
-    private record OverlayMessage(String message, int color, long expiresAtMillis) {
+    private record OverlayMessage(Component message, int color, long expiresAtMillis) {
     }
 }
