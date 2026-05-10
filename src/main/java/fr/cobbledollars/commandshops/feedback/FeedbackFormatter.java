@@ -25,10 +25,11 @@ public final class FeedbackFormatter {
             int stockLeft
     ) {
         Component stackAmount = formatStackAmount(bundleTemplate, amount);
+        Component moneyAmount = formatMoney(totalPrice);
         if (stockLeft >= 0) {
-            return Component.translatable("cobbledollarscommandshops.feedback.buy_success.stock_left", stackAmount, totalPrice, stockLeft);
+            return Component.translatable("cobbledollarscommandshops.feedback.buy_success.stock_left", stackAmount, moneyAmount, stockLeft);
         }
-        return Component.translatable("cobbledollarscommandshops.feedback.buy_success", stackAmount, totalPrice);
+        return Component.translatable("cobbledollarscommandshops.feedback.buy_success", stackAmount, moneyAmount);
     }
 
     public static Component buyFailure(BuyFailureReason reason) {
@@ -47,7 +48,7 @@ public final class FeedbackFormatter {
                         ? "cobbledollarscommandshops.feedback.sell_success.one"
                         : "cobbledollarscommandshops.feedback.sell_success.many",
                 soldItemCount,
-                totalValue
+                formatMoney(totalValue)
         );
     }
 
@@ -60,6 +61,10 @@ public final class FeedbackFormatter {
     private static MutableComponent formatStackAmount(ItemStack bundleTemplate, int amount) {
         int totalCount = Math.multiplyExact(bundleTemplate.getCount(), amount);
         return Component.translatable("cobbledollarscommandshops.feedback.stack_amount", totalCount, bundleTemplate.getHoverName());
+    }
+
+    private static MutableComponent formatMoney(BigInteger amount) {
+        return Component.literal(amount.toString());
     }
 
 }

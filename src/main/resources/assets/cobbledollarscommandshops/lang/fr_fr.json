@@ -11,7 +11,7 @@
   "cobbledollarscommandshops.feedback.sell_success.one": "Vendu %1$s objet pour %2$s.",
   "cobbledollarscommandshops.feedback.sell_success.many": "Vendu %1$s objets pour %2$s.",
   "cobbledollarscommandshops.feedback.sell_failure.nothing_sellable": "Aucun objet vendable dans la bank.",
-  "cobbledollarscommandshops.ui.selected_offer.next_restock": "Prochain réassort : +%1$s à %2$s (dans %3$s).",
+  "cobbledollarscommandshops.ui.selected_offer.next_restock": "Prochain réapprovisionnement : +%1$s à %2$s (dans %3$s).",
   "cobbledollarscommandshops.ui.selected_offer.out_of_stock": "L'offre sélectionnée est en rupture de stock.",
   "cobbledollarscommandshops.time.duration.hms": "%1$s h %2$s min %3$s s",
   "cobbledollarscommandshops.time.duration.ms": "%1$s min %2$s s",
