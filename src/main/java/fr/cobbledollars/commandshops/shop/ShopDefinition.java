@@ -10,16 +10,19 @@ import java.util.UUID;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Category;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import net.minecraft.server.level.ServerPlayer;
 
 public final class ShopDefinition {
     private final String id;
     private final List<ShopCategoryDefinition> categories;
+    private final ConditionSet conditions;
     private final Path sourceFile;
     private final Map<String, ShopOfferDefinition> offersById;
 
-    public ShopDefinition(String id, List<ShopCategoryDefinition> categories, Path sourceFile) {
+    public ShopDefinition(String id, List<ShopCategoryDefinition> categories, ConditionSet conditions, Path sourceFile) {
         this.id = id;
         this.categories = List.copyOf(categories);
+        this.conditions = conditions == null ? ConditionSet.NONE : conditions;
         this.sourceFile = sourceFile;
         this.offersById = buildOfferMap(categories);
     }
@@ -40,6 +43,10 @@ public final class ShopDefinition {
 
     public List<ShopCategoryDefinition> categories() {
         return categories;
+    }
+
+    public ConditionSet conditions() {
+        return conditions;
     }
 
     public Path sourceFile() {
@@ -71,15 +78,34 @@ public final class ShopDefinition {
         return offers.get(offerIndex);
     }
 
-    public Shop createRuntimeShop(PlayerShopStockData stockData, UUID playerUuid, long nowMillis) {
+    public boolean isAccessibleBy(ServerPlayer player) {
+        return conditions.test(player);
+    }
+
+    public Shop createRuntimeShop(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {
         Shop runtimeShop = new Shop();
+        if (!conditions.test(player)) {
+            return runtimeShop;
+        }
+
+        UUID playerUuid = player.getUUID();
         for (ShopCategoryDefinition categoryDefinition : categories) {
+            if (!categoryDefinition.conditions().test(player)) {
+                continue;
+            }
+
             ArrayList<Offer> runtimeOffers = new ArrayList<>(categoryDefinition.offers().size());
             for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
+                if (!offerDefinition.isVisibleTo(player)) {
+                    continue;
+                }
+
                 int stock = stockData.resolveStock(playerUuid, this, offerDefinition, nowMillis);
                 runtimeOffers.add(offerDefinition.createRuntimeOffer(stock));
             }
-            runtimeShop.add(new Category(categoryDefinition.name(), runtimeOffers));
+            if (!runtimeOffers.isEmpty()) {
+                runtimeShop.add(new Category(categoryDefinition.name(), runtimeOffers));
+            }
         }
         return runtimeShop;
     }

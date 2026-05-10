@@ -40,12 +40,15 @@ public final class CommandShopSessions {
         if (server == null) {
             throw new IllegalStateException("Player is not attached to a server.");
         }
+        if (!shop.isAccessibleBy(player)) {
+            throw new IllegalStateException("Player does not meet the conditions for shop '" + shop.id() + "'.");
+        }
 
         cleanupPlayer(server, player.getUUID());
 
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
 
         PlayerExtensionKt.openShop(player);
         if (!(player.containerMenu instanceof ShopMenu shopMenu)) {
@@ -76,7 +79,7 @@ public final class CommandShopSessions {
 
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
         PlayerExtensionKt.openBank(player, createSessionHolder(session.sessionUuid(), runtimeShop));
         syncClientBankConfig(player, shop.id(), runtimeShop);
         return true;
@@ -131,7 +134,7 @@ public final class CommandShopSessions {
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         long nowMillis = System.currentTimeMillis();
-        Shop currentRuntimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop currentRuntimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
         refreshSessionShop(player, session, currentRuntimeShop);
 
         ShopOfferDefinition offerDefinition = shop.getOffer(packet.getCategoryIndex(), packet.getOfferIndex());
@@ -176,7 +179,7 @@ public final class CommandShopSessions {
                 ((player.getRandom().nextFloat() - player.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
         player.containerMenu.broadcastChanges();
 
-        Shop updatedRuntimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop updatedRuntimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
         refreshSessionShop(player, session, updatedRuntimeShop);
         return true;
     }
@@ -194,7 +197,7 @@ public final class CommandShopSessions {
         }
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player.getUUID(), System.currentTimeMillis());
+        Shop runtimeShop = shop.createRuntimeShop(stockData, player, System.currentTimeMillis());
         if (isViewingSessionShop(player, session)) {
             refreshSessionShop(player, session, runtimeShop);
             return;
@@ -255,7 +258,7 @@ public final class CommandShopSessions {
         SimpleContainer bankContainer = bankMenu.getBankContainer();
         BigInteger totalValue = BigInteger.ZERO;
         try {
-            var bank = ShopRegistry.getBank(shop.id());
+            var bank = ShopRegistry.getBank(shop.id(), player);
             for (int slot = 0; slot < bankContainer.getContainerSize(); slot++) {
                 ItemStack stack = bankContainer.getItem(slot);
                 if (stack.isEmpty()) {
@@ -389,7 +392,7 @@ public final class CommandShopSessions {
 
     private static void syncClientBankConfig(ServerPlayer player, String shopId, Shop runtimeShop) {
         try {
-            new SyncShopConfigPacket(runtimeShop, ShopRegistry.getBank(shopId)).sendToPlayer(player);
+            new SyncShopConfigPacket(runtimeShop, ShopRegistry.getBank(shopId, player)).sendToPlayer(player);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sync custom bank config for {}", player.getGameProfile().getName(), exception);
             player.sendSystemMessage(Component.literal("Failed to load custom bank config: " + exception.getMessage()));

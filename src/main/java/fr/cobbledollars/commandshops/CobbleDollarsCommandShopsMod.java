@@ -31,7 +31,7 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         try {
-            ShopRegistry.initialize();
+            ShopRegistry.initialize(event.getServer().registryAccess());
         } catch (IOException exception) {
             LOGGER.error("Failed to prepare NPC shop directory", exception);
         }

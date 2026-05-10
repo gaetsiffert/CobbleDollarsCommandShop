@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import net.minecraft.core.HolderLookup;
+import net.minecraft.server.level.ServerPlayer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
 
 public final class ShopRegistry {
@@ -16,16 +18,16 @@ public final class ShopRegistry {
     private ShopRegistry() {
     }
 
-    public static synchronized ReloadSummary initialize() throws IOException {
+    public static synchronized ReloadSummary initialize(HolderLookup.Provider provider) throws IOException {
         ShopFiles.ensureExampleShopExists();
         BankFiles.ensureExampleGlobalBankExists();
-        RegistryState loadedState = loadState();
+        RegistryState loadedState = loadState(provider);
         state = loadedState;
         return new ReloadSummary(loadedState.shops().size(), loadedState.shopBanks().size(), BankFiles.getGlobalBankFile());
     }
 
-    public static synchronized ReloadSummary reload() throws IOException {
-        RegistryState loadedState = loadState();
+    public static synchronized ReloadSummary reload(HolderLookup.Provider provider) throws IOException {
+        RegistryState loadedState = loadState(provider);
         state = loadedState;
         return new ReloadSummary(loadedState.shops().size(), loadedState.shopBanks().size(), BankFiles.getGlobalBankFile());
     }
@@ -38,13 +40,13 @@ public final class ShopRegistry {
         return state.shops().get(ShopFiles.normalizeId(shopId, "shop id"));
     }
 
-    public static Bank getBank(String shopId) {
+    public static Bank getBank(String shopId, ServerPlayer player) {
         String normalizedShopId = ShopFiles.normalizeId(shopId, "shop id");
-        Bank bank = state.shopBanks().get(normalizedShopId);
+        BankDefinition bank = state.shopBanks().get(normalizedShopId);
         if (bank != null) {
-            return BankFiles.copyBank(bank);
+            return bank.createRuntimeBank(player);
         }
-        return BankFiles.copyBank(state.globalBank());
+        return state.globalBank().createRuntimeBank(player);
     }
 
     public static List<String> listShopIds() {
@@ -59,11 +61,11 @@ public final class ShopRegistry {
         return BankFiles.getGlobalBankFile();
     }
 
-    private static RegistryState loadState() throws IOException {
+    private static RegistryState loadState(HolderLookup.Provider provider) throws IOException {
         Files.createDirectories(ShopFiles.getShopDirectory());
 
         LinkedHashMap<String, ShopDefinition> shops = new LinkedHashMap<>();
-        LinkedHashMap<String, Bank> shopBanks = new LinkedHashMap<>();
+        LinkedHashMap<String, BankDefinition> shopBanks = new LinkedHashMap<>();
 
         List<Path> entries;
         try (var paths = Files.list(ShopFiles.getShopDirectory())) {
@@ -81,7 +83,7 @@ public final class ShopRegistry {
                 throw new IOException("Shop folder '" + entry + "' must contain a 'shop.json' file.");
             }
 
-            ShopDefinition shop = ShopFiles.parseShopFile(shopId, shopFile);
+            ShopDefinition shop = ShopFiles.parseShopFile(shopId, shopFile, provider);
             ShopDefinition previous = shops.putIfAbsent(shop.id(), shop);
             if (previous != null) {
                 throw new IOException("Duplicate shop id '" + shop.id() + "' in " + previous.sourceFile() + " and " + shop.sourceFile() + ".");
@@ -89,20 +91,20 @@ public final class ShopRegistry {
 
             Path localBankFile = BankFiles.resolveLocalBankFile(entry);
             if (Files.isRegularFile(localBankFile)) {
-                shopBanks.put(shop.id(), BankFiles.loadBankFile(localBankFile));
+                shopBanks.put(shop.id(), BankFiles.loadBankFile(localBankFile, provider));
             }
         }
 
-        Bank globalBank = BankFiles.loadGlobalBank();
-        return new RegistryState(Map.copyOf(shops), Map.copyOf(shopBanks), BankFiles.copyBank(globalBank));
+        BankDefinition globalBank = BankFiles.loadGlobalBank(provider);
+        return new RegistryState(Map.copyOf(shops), Map.copyOf(shopBanks), globalBank);
     }
 
     public record ReloadSummary(int shopCount, int localBankCount, Path globalBankFile) {
     }
 
-    private record RegistryState(Map<String, ShopDefinition> shops, Map<String, Bank> shopBanks, Bank globalBank) {
+    private record RegistryState(Map<String, ShopDefinition> shops, Map<String, BankDefinition> shopBanks, BankDefinition globalBank) {
         private static RegistryState empty() {
-            return new RegistryState(Map.of(), Map.of(), new Bank(new ArrayList<>()));
+            return new RegistryState(Map.of(), Map.of(), new BankDefinition(List.of(), ConditionSet.NONE, BankFiles.getGlobalBankFile()));
         }
     }
 }

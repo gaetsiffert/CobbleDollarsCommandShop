@@ -108,7 +108,7 @@ public final class CommandShopCommands {
 
     private static int reload(CommandSourceStack source) throws CommandSyntaxException {
         try {
-            ShopRegistry.ReloadSummary summary = ShopRegistry.reload();
+            ShopRegistry.ReloadSummary summary = ShopRegistry.reload(source.getServer().registryAccess());
             CommandShopSessions.refreshAllSessions(source.getServer());
             source.sendSuccess(() -> Component.literal(
                     "Reloaded " + summary.shopCount() + " shop(s), "
