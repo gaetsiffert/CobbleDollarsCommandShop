@@ -8,8 +8,10 @@ This mod adds command-driven CobbleDollars shops with:
 - exact item matching through modern Minecraft data components
 - conditional visibility and access rules
 - hot config reload with `/cdshops reload`
+- configurable server-only player feedback through `feedback.json`
+- optional client-side UI enhancements when the same jar is installed on the client
 
-It does not replace CobbleDollars, add custom client screens, or replace CobbleDollars NPCs. It only takes over sessions opened through this addon.
+It does not replace CobbleDollars, replace CobbleDollars NPCs, or move gameplay authority to the client. It only takes over sessions opened through this addon.
 
 ## Commands
 

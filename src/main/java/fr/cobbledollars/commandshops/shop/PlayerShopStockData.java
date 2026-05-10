@@ -159,6 +159,31 @@ public final class PlayerShopStockData extends SavedData {
         return nextRestockAtMillis;
     }
 
+    public RestockPreview previewNextRestock(UUID playerUuid, ShopDefinition shop, ShopOfferDefinition offer, long nowMillis) {
+        if (!offer.hasFiniteStock() || !offer.hasRestockRule()) {
+            return RestockPreview.none();
+        }
+
+        StoredOfferStock state = getState(playerUuid, shop, offer);
+        if (state == null) {
+            return RestockPreview.none();
+        }
+        if (applyRestock(state, offer, nowMillis)) {
+            setDirty();
+        }
+        if (isRedundantState(state, offer)) {
+            removeState(playerUuid, shop, offer);
+            setDirty();
+            return RestockPreview.none();
+        }
+
+        long nextRestockAtMillis = computeNextRestockAtMillis(state, offer, nowMillis);
+        if (nextRestockAtMillis == Long.MAX_VALUE) {
+            return RestockPreview.none();
+        }
+        return new RestockPreview(offer.restockRule(), nextRestockAtMillis, nextRestockAmount(state, offer));
+    }
+
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider provider) {
         CompoundTag playersTag = new CompoundTag();
@@ -339,6 +364,31 @@ public final class PlayerShopStockData extends SavedData {
 
     private static boolean isRedundantState(StoredOfferStock state, ShopOfferDefinition offer) {
         return state.stock() >= offer.stock();
+    }
+
+    private static int nextRestockAmount(StoredOfferStock state, ShopOfferDefinition offer) {
+        RestockRule restockRule = offer.restockRule();
+        int missingStock = Math.max(0, offer.stock() - state.stock());
+        if (missingStock <= 0 || restockRule == null) {
+            return 0;
+        }
+        if (restockRule instanceof RestockRule.IntervalRestockRule intervalRule) {
+            return Math.min(missingStock, intervalRule.amount());
+        }
+        if (restockRule instanceof RestockRule.DailyRestockRule) {
+            return missingStock;
+        }
+        return 0;
+    }
+
+    public record RestockPreview(RestockRule rule, long nextRestockAtMillis, int nextRestockAmount) {
+        public static RestockPreview none() {
+            return new RestockPreview(null, Long.MAX_VALUE, 0);
+        }
+
+        public boolean hasNextRestock() {
+            return rule != null && nextRestockAtMillis != Long.MAX_VALUE;
+        }
     }
 
     private static final class StoredOfferStock {

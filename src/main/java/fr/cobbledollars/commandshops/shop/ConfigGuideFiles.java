@@ -33,6 +33,7 @@ public final class ConfigGuideFiles {
                 ```text
                 config/cobbledollarscommandshops/
                   CONFIG_GUIDE.md
+                  feedback.json
                   global_bank.json
                   shops/
                     general_store/
@@ -64,6 +65,7 @@ public final class ConfigGuideFiles {
 
                 ```json
                 {
+                  "deny_message": "You must unlock this shop first.",
                   "conditions": {
                     "player_tags_none": ["shop_banned"]
                   },
@@ -95,6 +97,7 @@ public final class ConfigGuideFiles {
 
                 ### Shop Fields
 
+                - `deny_message`: optional message shown when the player cannot open the shop
                 - `conditions`: optional conditions applied to the whole shop
                 - `categories`: required array
                 - `categories[].name`: name displayed in the CobbleDollars UI
@@ -257,6 +260,67 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
+
+                ## Feedback Configuration
+
+                `feedback.json` controls the fallback player feedback used when the client does not have this mod installed.
+                In pure server-only mode it can use action bars, chat messages, and sounds.
+                When a container screen such as a shop or bank is open, `action_bar` falls back to chat automatically because the action bar is hidden behind that UI.
+
+                ```json
+                {
+                  "buy_success": {
+                    "channels": ["action_bar", "sound"],
+                    "sound": {
+                      "id": "minecraft:entity.experience_orb.pickup",
+                      "volume": 0.25,
+                      "pitch": 1.8
+                    }
+                  },
+                  "buy_failure": {
+                    "channels": ["action_bar", "sound"],
+                    "sound": "minecraft:entity.villager.no"
+                  },
+                  "sell_success": {
+                    "channels": ["action_bar", "sound"],
+                    "sound": "minecraft:entity.experience_orb.pickup"
+                  },
+                  "sell_failure": {
+                    "channels": ["action_bar", "sound"],
+                    "sound": "minecraft:entity.villager.no"
+                  },
+                  "shop_denied": {
+                    "channels": ["chat", "sound"],
+                    "sound": "minecraft:entity.villager.no"
+                  }
+                }
+                ```
+
+                Supported feedback channels:
+
+                - `action_bar`
+                - `chat`
+                - `sound`
+
+                Sound values can be either:
+
+                - a string resource id such as `"minecraft:entity.villager.no"`
+                - or an object with `id`, `volume`, and `pitch`
+
+                ## Optional Client Layer
+
+                If the same jar is installed on the client, this mod adds a thin CobbleDollars UI layer without moving any gameplay authority to the client.
+
+                With the client layer present:
+
+                - shop feedback is rendered directly on top of the CobbleDollars screen instead of using chat fallback
+                - the selected offer can show the next restock amount and exact next restock time using server-provided timestamps
+
+                Without the client layer:
+
+                - custom shops still work normally
+                - all validation, stock, bank rules, and conditions still stay server-side
+                - feedback falls back to the channels configured in `feedback.json`
 
                 ## Notes
 

@@ -46,8 +46,8 @@ authors="Narrnouille"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Server-side addon for CobbleDollars that opens named custom CobbleDollars shops by command.
-It adds per-player persistent stock, optional automatic restocks, and is meant for moderator tools or CustomNPCs buttons.
+Server-authoritative addon for CobbleDollars that opens named custom CobbleDollars shops by command.
+It adds per-player persistent stock, optional automatic restocks, and optional client UI enhancements when the same jar is installed client-side.
 '''
 
 [[mixins]]

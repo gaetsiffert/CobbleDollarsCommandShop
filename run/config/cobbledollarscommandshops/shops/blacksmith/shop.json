@@ -1,0 +1,51 @@
+{
+  "categories": [
+    {
+      "name": "Weapons",
+      "offers": [
+        {
+          "id": "iron_sword",
+          "item": "minecraft:iron_sword",
+          "count": 1,
+          "price": 90
+        },
+        {
+          "id": "crossbow",
+          "item": "minecraft:crossbow",
+          "count": 1,
+          "price": 120,
+          "stock": 4,
+          "restock": {
+            "type": "interval",
+            "amount": 1,
+            "every_seconds": 900
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tools",
+      "offers": [
+        {
+          "id": "iron_pickaxe",
+          "item": "minecraft:iron_pickaxe",
+          "count": 1,
+          "price": 110
+        },
+        {
+          "id": "diamond_pickaxe",
+          "item": "minecraft:diamond_pickaxe",
+          "count": 1,
+          "price": 450,
+          "stock": 2,
+          "restock": {
+            "type": "daily_reset",
+            "hour": 4,
+            "minute": 0,
+            "time_zone": "Europe/Paris"
+          }
+        }
+      ]
+    }
+  ]
+}

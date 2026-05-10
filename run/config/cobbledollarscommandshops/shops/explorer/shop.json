@@ -1,0 +1,56 @@
+{
+  "categories": [
+    {
+      "name": "Travel",
+      "offers": [
+        {
+          "id": "compass",
+          "item": "minecraft:compass",
+          "count": 1,
+          "price": 60
+        },
+        {
+          "id": "map_bundle",
+          "item": "minecraft:map",
+          "count": 3,
+          "price": 45
+        },
+        {
+          "id": "boat",
+          "item": "minecraft:oak_boat",
+          "count": 1,
+          "price": 35
+        }
+      ]
+    },
+    {
+      "name": "Supplies",
+      "offers": [
+        {
+          "id": "arrow_stack",
+          "item": "minecraft:arrow",
+          "count": 32,
+          "price": 40
+        },
+        {
+          "id": "lead_pair",
+          "item": "minecraft:lead",
+          "count": 2,
+          "price": 70,
+          "stock": 5,
+          "restock": {
+            "type": "interval",
+            "amount": 1,
+            "every_seconds": 600
+          }
+        },
+        {
+          "id": "water_bucket",
+          "item": "minecraft:water_bucket",
+          "count": 1,
+          "price": 55
+        }
+      ]
+    }
+  ]
+}

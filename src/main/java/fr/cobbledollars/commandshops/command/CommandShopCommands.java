@@ -11,6 +11,8 @@ import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import fr.cobbledollars.commandshops.feedback.FeedbackFiles;
+import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
@@ -109,10 +111,12 @@ public final class CommandShopCommands {
     private static int reload(CommandSourceStack source) throws CommandSyntaxException {
         try {
             ShopRegistry.ReloadSummary summary = ShopRegistry.reload(source.getServer().registryAccess());
+            ShopFeedbackService.reload();
             CommandShopSessions.refreshAllSessions(source.getServer());
             source.sendSuccess(() -> Component.literal(
                     "Reloaded " + summary.shopCount() + " shop(s), "
-                            + summary.localBankCount() + " local bank(s), global bank '" + summary.globalBankFile() + "'."),
+                            + summary.localBankCount() + " local bank(s), global bank '" + summary.globalBankFile()
+                            + "', feedback config '" + FeedbackFiles.getConfigFile() + "'."), 
                     true);
             return 1;
         } catch (Exception exception) {

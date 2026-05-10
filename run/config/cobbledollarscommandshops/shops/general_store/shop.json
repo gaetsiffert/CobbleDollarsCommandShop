@@ -1,0 +1,63 @@
+{
+  "categories": [
+    {
+      "name": "Food",
+      "offers": [
+        {
+          "id": "bread_bundle",
+          "item": "minecraft:bread",
+          "count": 6,
+          "price": 24
+        },
+        {
+          "id": "cooked_beef",
+          "item": "minecraft:cooked_beef",
+          "count": 8,
+          "price": 48
+        },
+        {
+          "id": "golden_apple",
+          "item": "minecraft:golden_apple",
+          "count": 1,
+          "price": 140,
+          "stock": 3,
+          "restock": {
+            "type": "daily_reset",
+            "hour": 4,
+            "minute": 0,
+            "time_zone": "Europe/Paris"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Utilities",
+      "offers": [
+        {
+          "id": "torch_stack",
+          "item": "minecraft:torch",
+          "count": 32,
+          "price": 18
+        },
+        {
+          "id": "oak_logs",
+          "item": "minecraft:oak_log",
+          "count": 16,
+          "price": 30
+        },
+        {
+          "id": "ender_pearl_pair",
+          "item": "minecraft:ender_pearl",
+          "count": 2,
+          "price": 90,
+          "stock": 6,
+          "restock": {
+            "type": "interval",
+            "amount": 1,
+            "every_seconds": 300
+          }
+        }
+      ]
+    }
+  ]
+}

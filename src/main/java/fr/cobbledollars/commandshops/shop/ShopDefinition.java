@@ -16,6 +16,7 @@ public final class ShopDefinition {
     private final String id;
     private final List<ShopCategoryDefinition> categories;
     private final ConditionSet conditions;
+    private final String denyMessage;
     private final Path sourceFile;
     private final Map<String, ShopOfferDefinition> offersById;
     private final List<ShopOfferDefinition> offersInOrder;
@@ -25,10 +26,11 @@ public final class ShopDefinition {
     private final boolean hasTimeConditions;
     private final boolean hasRestockingOffers;
 
-    public ShopDefinition(String id, List<ShopCategoryDefinition> categories, ConditionSet conditions, Path sourceFile) {
+    public ShopDefinition(String id, List<ShopCategoryDefinition> categories, ConditionSet conditions, String denyMessage, Path sourceFile) {
         this.id = id;
         this.categories = List.copyOf(categories);
         this.conditions = conditions == null ? ConditionSet.NONE : conditions;
+        this.denyMessage = denyMessage;
         this.sourceFile = sourceFile;
         this.offersById = buildOfferMap(categories);
         this.offersInOrder = buildOfferList(categories);
@@ -85,6 +87,10 @@ public final class ShopDefinition {
 
     public ConditionSet conditions() {
         return conditions;
+    }
+
+    public String denyMessage() {
+        return denyMessage;
     }
 
     public Path sourceFile() {

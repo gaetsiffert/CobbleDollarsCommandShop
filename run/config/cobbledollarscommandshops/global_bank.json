@@ -1,0 +1,59 @@
+{
+  "categories": [
+    {
+      "name": "Ores",
+      "offers": [
+        {
+          "item": "minecraft:coal",
+          "price": 3
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "price": 8
+        },
+        {
+          "item": "minecraft:gold_ingot",
+          "price": 12
+        },
+        {
+          "item": "minecraft:diamond",
+          "price": 75
+        }
+      ]
+    },
+    {
+      "name": "Crops",
+      "offers": [
+        {
+          "item": "minecraft:wheat",
+          "price": 2
+        },
+        {
+          "item": "minecraft:carrot",
+          "price": 3
+        },
+        {
+          "item": "minecraft:potato",
+          "price": 3
+        }
+      ]
+    },
+    {
+      "name": "Mob Drops",
+      "offers": [
+        {
+          "item": "minecraft:rotten_flesh",
+          "price": 1
+        },
+        {
+          "item": "minecraft:bone",
+          "price": 2
+        },
+        {
+          "item": "minecraft:string",
+          "price": 2
+        }
+      ]
+    }
+  ]
+}

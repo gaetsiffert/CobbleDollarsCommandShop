@@ -83,6 +83,10 @@ public final class ShopFiles {
     private static ShopDefinition parseModernShop(String shopId, Path shopFile, JsonObject rootObject, HolderLookup.Provider provider) throws IOException {
         String context = "shop file '" + shopFile + "'";
         ConditionSet shopConditions = ConditionSet.readOptional(rootObject, context);
+        String denyMessage = ConfigParsing.readOptionalString(rootObject, "deny_message", null, context);
+        if (denyMessage != null && denyMessage.isBlank()) {
+            denyMessage = null;
+        }
         JsonArray categoriesArray = ConfigParsing.readRequiredArray(rootObject, "categories", context);
 
         Set<String> seenOfferIds = new HashSet<>();
@@ -110,7 +114,7 @@ public final class ShopFiles {
             categories.add(new ShopCategoryDefinition(categoryName, offers, categoryConditions));
         }
 
-        return new ShopDefinition(shopId, categories, shopConditions, shopFile);
+        return new ShopDefinition(shopId, categories, shopConditions, denyMessage, shopFile);
     }
 
     private static ShopOfferDefinition parseOffer(JsonElement offerElement, String shopId, String categoryName, int offerIndex, HolderLookup.Provider provider) throws IOException {
@@ -223,7 +227,7 @@ public final class ShopFiles {
                 new ShopCategoryDefinition("Food", foodOffers, ConditionSet.NONE),
                 new ShopCategoryDefinition("Utilities", utilityOffers, ConditionSet.NONE)
         );
-        return new ShopDefinition("general_store", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("general_store")));
+        return new ShopDefinition("general_store", categories, ConditionSet.NONE, null, resolveShopFile(SHOP_DIRECTORY.resolve("general_store")));
     }
 
     private static ShopDefinition createBlacksmithShop() {
@@ -241,7 +245,7 @@ public final class ShopFiles {
                 new ShopCategoryDefinition("Weapons", weaponOffers, ConditionSet.NONE),
                 new ShopCategoryDefinition("Tools", toolOffers, ConditionSet.NONE)
         );
-        return new ShopDefinition("blacksmith", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("blacksmith")));
+        return new ShopDefinition("blacksmith", categories, ConditionSet.NONE, null, resolveShopFile(SHOP_DIRECTORY.resolve("blacksmith")));
     }
 
     private static ShopDefinition createExplorerShop() {
@@ -260,11 +264,14 @@ public final class ShopFiles {
                 new ShopCategoryDefinition("Travel", travelOffers, ConditionSet.NONE),
                 new ShopCategoryDefinition("Supplies", supplyOffers, ConditionSet.NONE)
         );
-        return new ShopDefinition("explorer", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("explorer")));
+        return new ShopDefinition("explorer", categories, ConditionSet.NONE, null, resolveShopFile(SHOP_DIRECTORY.resolve("explorer")));
     }
 
     private static JsonElement toJson(ShopDefinition shop) {
         JsonObject root = new JsonObject();
+        if (shop.denyMessage() != null) {
+            root.addProperty("deny_message", shop.denyMessage());
+        }
         JsonArray categoriesArray = new JsonArray();
         for (ShopCategoryDefinition category : shop.categories()) {
             JsonObject categoryObject = new JsonObject();
