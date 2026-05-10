@@ -137,7 +137,7 @@ public final class CommandShopSessions {
         Shop currentRuntimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
         refreshSessionShop(player, session, currentRuntimeShop);
 
-        ShopOfferDefinition offerDefinition = shop.getOffer(packet.getCategoryIndex(), packet.getOfferIndex());
+        ShopOfferDefinition offerDefinition = shop.getVisibleOffer(player, packet.getCategoryIndex(), packet.getOfferIndex());
         if (offerDefinition == null) {
             return true;
         }
@@ -149,7 +149,9 @@ public final class CommandShopSessions {
         }
 
         int amount = Math.max(0, packet.getAmount());
-        amount = Math.min(amount, PlayerExtensionKt.getMaxAmountObtainable(player, expectedOffer.getItem()));
+        int bundleSize = Math.max(1, expectedOffer.getItem().getCount());
+        int maxBundleAmount = PlayerExtensionKt.getMaxAmountObtainable(player, expectedOffer.getItem()) / bundleSize;
+        amount = Math.min(amount, Math.max(0, maxBundleAmount));
 
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
@@ -174,7 +176,7 @@ public final class CommandShopSessions {
         }
 
         PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
-        player.addItem(expectedOffer.getItem().copyWithCount(amount));
+        giveOfferItems(player, expectedOffer.getItem(), amount);
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.2F,
                 ((player.getRandom().nextFloat() - player.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
         player.containerMenu.broadcastChanges();
@@ -322,6 +324,16 @@ public final class CommandShopSessions {
 
     private static boolean matchesSession(CobbleDollarsShopHolder holder, CommandShopSession session) {
         return holder != null && session.sessionUuid().equals(holder.getMerchantUUID());
+    }
+
+    private static void giveOfferItems(ServerPlayer player, ItemStack template, int amount) {
+        int remaining = Math.multiplyExact(template.getCount(), amount);
+        int maxStackSize = template.getMaxStackSize();
+        while (remaining > 0) {
+            int stackCount = Math.min(maxStackSize, remaining);
+            player.addItem(template.copyWithCount(stackCount));
+            remaining -= stackCount;
+        }
     }
 
     private static Offer getRuntimeOffer(Shop shop, int categoryIndex, int offerIndex) {

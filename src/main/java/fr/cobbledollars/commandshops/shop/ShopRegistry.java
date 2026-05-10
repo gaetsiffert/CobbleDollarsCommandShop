@@ -3,7 +3,6 @@ package fr.cobbledollars.commandshops.shop;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +18,9 @@ public final class ShopRegistry {
     }
 
     public static synchronized ReloadSummary initialize(HolderLookup.Provider provider) throws IOException {
-        ShopFiles.ensureExampleShopExists();
-        BankFiles.ensureExampleGlobalBankExists();
+        ShopFiles.ensureDefaultShopsExist();
+        BankFiles.ensureDefaultGlobalBankExists();
+        ConfigGuideFiles.ensureDetailedGuideExists();
         RegistryState loadedState = loadState(provider);
         state = loadedState;
         return new ReloadSummary(loadedState.shops().size(), loadedState.shopBanks().size(), BankFiles.getGlobalBankFile());

@@ -78,6 +78,39 @@ public final class ShopDefinition {
         return offers.get(offerIndex);
     }
 
+    public ShopOfferDefinition getVisibleOffer(ServerPlayer player, int categoryIndex, int offerIndex) {
+        if (categoryIndex < 0 || offerIndex < 0 || !conditions.test(player)) {
+            return null;
+        }
+
+        int visibleCategoryIndex = 0;
+        for (ShopCategoryDefinition categoryDefinition : categories) {
+            if (!categoryDefinition.conditions().test(player)) {
+                continue;
+            }
+
+            int visibleOfferIndex = 0;
+            for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
+                if (!offerDefinition.isVisibleTo(player)) {
+                    continue;
+                }
+
+                if (visibleCategoryIndex == categoryIndex && visibleOfferIndex == offerIndex) {
+                    return offerDefinition;
+                }
+                visibleOfferIndex++;
+            }
+
+            if (visibleOfferIndex > 0) {
+                if (visibleCategoryIndex == categoryIndex) {
+                    return null;
+                }
+                visibleCategoryIndex++;
+            }
+        }
+        return null;
+    }
+
     public boolean isAccessibleBy(ServerPlayer player) {
         return conditions.test(player);
     }

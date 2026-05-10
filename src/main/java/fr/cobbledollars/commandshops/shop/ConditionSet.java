@@ -16,7 +16,7 @@ import net.minecraft.world.scores.ReadOnlyScoreInfo;
 import net.minecraft.world.scores.Scoreboard;
 
 public final class ConditionSet {
-    public static final ConditionSet NONE = new ConditionSet(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+    public static final ConditionSet NONE = new ConditionSet(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
 
     private final List<String> playerTagsAll;
     private final List<String> playerTagsAny;
@@ -24,6 +24,7 @@ public final class ConditionSet {
     private final List<ResourceLocation> advancementsAll;
     private final List<ResourceLocation> advancementsAny;
     private final List<ResourceLocation> dimensionsAny;
+    private final List<TimeRangeCondition> timeRangesAny;
     private final List<ScoreCondition> scoresAll;
 
     public ConditionSet(
@@ -33,6 +34,7 @@ public final class ConditionSet {
             List<ResourceLocation> advancementsAll,
             List<ResourceLocation> advancementsAny,
             List<ResourceLocation> dimensionsAny,
+            List<TimeRangeCondition> timeRangesAny,
             List<ScoreCondition> scoresAll
     ) {
         this.playerTagsAll = List.copyOf(playerTagsAll);
@@ -41,6 +43,7 @@ public final class ConditionSet {
         this.advancementsAll = List.copyOf(advancementsAll);
         this.advancementsAny = List.copyOf(advancementsAny);
         this.dimensionsAny = List.copyOf(dimensionsAny);
+        this.timeRangesAny = List.copyOf(timeRangesAny);
         this.scoresAll = List.copyOf(scoresAll);
     }
 
@@ -60,6 +63,7 @@ public final class ConditionSet {
         List<ResourceLocation> advancementsAll = readResourceLocations(conditionsObject, "advancements_all", context);
         List<ResourceLocation> advancementsAny = readResourceLocations(conditionsObject, "advancements_any", context);
         List<ResourceLocation> dimensionsAny = readResourceLocations(conditionsObject, "dimensions_any", context);
+        List<TimeRangeCondition> timeRangesAny = readTimeRangeConditions(conditionsObject, "time_ranges_any", context);
         List<ScoreCondition> scoresAll = readScoreConditions(conditionsObject, "scores_all", context);
 
         if (playerTagsAll.isEmpty()
@@ -68,10 +72,11 @@ public final class ConditionSet {
                 && advancementsAll.isEmpty()
                 && advancementsAny.isEmpty()
                 && dimensionsAny.isEmpty()
+                && timeRangesAny.isEmpty()
                 && scoresAll.isEmpty()) {
             return NONE;
         }
-        return new ConditionSet(playerTagsAll, playerTagsAny, playerTagsNone, advancementsAll, advancementsAny, dimensionsAny, scoresAll);
+        return new ConditionSet(playerTagsAll, playerTagsAny, playerTagsNone, advancementsAll, advancementsAny, dimensionsAny, timeRangesAny, scoresAll);
     }
 
     public boolean isEmpty() {
@@ -81,6 +86,7 @@ public final class ConditionSet {
                 && advancementsAll.isEmpty()
                 && advancementsAny.isEmpty()
                 && dimensionsAny.isEmpty()
+                && timeRangesAny.isEmpty()
                 && scoresAll.isEmpty());
     }
 
@@ -112,6 +118,13 @@ public final class ConditionSet {
         if (!dimensionsAny.isEmpty()) {
             ResourceLocation currentDimension = player.level().dimension().location();
             if (dimensionsAny.stream().noneMatch(currentDimension::equals)) {
+                return false;
+            }
+        }
+
+        if (!timeRangesAny.isEmpty()) {
+            long timeOfDay = player.level().getDayTime() % 24000L;
+            if (timeRangesAny.stream().noneMatch(range -> range.test(timeOfDay))) {
                 return false;
             }
         }
@@ -162,6 +175,40 @@ public final class ConditionSet {
             resourceLocations.add(ConfigParsing.readResourceLocation(value, key, context));
         }
         return List.copyOf(resourceLocations);
+    }
+
+    private static List<TimeRangeCondition> readTimeRangeConditions(JsonObject object, String key, String context) throws IOException {
+        JsonElement element = object.get(key);
+        if (element == null || element.isJsonNull()) {
+            return List.of();
+        }
+        if (!element.isJsonArray()) {
+            throw new IOException("Field '" + key + "' in " + context + " must be an array.");
+        }
+
+        JsonArray array = element.getAsJsonArray();
+        List<TimeRangeCondition> timeRanges = new ArrayList<>(array.size());
+        for (int index = 0; index < array.size(); index++) {
+            JsonElement child = array.get(index);
+            if (!child.isJsonObject()) {
+                throw new IOException("Entry #" + index + " in '" + key + "' for " + context + " must be an object.");
+            }
+            JsonObject rangeObject = child.getAsJsonObject();
+            String rangeContext = context + ", " + key + "[" + index + "]";
+            int startTick = ConfigParsing.readInt(rangeObject, "start_tick", -1, rangeContext);
+            int endTick = ConfigParsing.readInt(rangeObject, "end_tick", -1, rangeContext);
+            if (startTick < 0 || startTick > 23999) {
+                throw new IOException("Field 'start_tick' in " + rangeContext + " must be between 0 and 23999.");
+            }
+            if (endTick < 0 || endTick > 23999) {
+                throw new IOException("Field 'end_tick' in " + rangeContext + " must be between 0 and 23999.");
+            }
+            if (startTick == endTick) {
+                throw new IOException("Fields 'start_tick' and 'end_tick' in " + rangeContext + " must be different.");
+            }
+            timeRanges.add(new TimeRangeCondition(startTick, endTick));
+        }
+        return List.copyOf(timeRanges);
     }
 
     private static List<ScoreCondition> readScoreConditions(JsonObject object, String key, String context) throws IOException {
@@ -232,6 +279,15 @@ public final class ConditionSet {
                 return false;
             }
             return true;
+        }
+    }
+
+    public record TimeRangeCondition(int startTick, int endTick) {
+        public boolean test(long timeOfDay) {
+            if (startTick < endTick) {
+                return timeOfDay >= startTick && timeOfDay < endTick;
+            }
+            return timeOfDay >= startTick || timeOfDay < endTick;
         }
     }
 }

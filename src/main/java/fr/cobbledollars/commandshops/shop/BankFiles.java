@@ -15,10 +15,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import com.mojang.brigadier.StringReader;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.commands.arguments.item.ItemParser;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -40,14 +41,14 @@ public final class BankFiles {
         return shopFolder.resolve(LOCAL_BANK_FILENAME);
     }
 
-    public static void ensureExampleGlobalBankExists() throws IOException {
+    public static void ensureDefaultGlobalBankExists() throws IOException {
         Path bankFile = getGlobalBankFile();
         Files.createDirectories(bankFile.getParent());
         if (Files.exists(bankFile)) {
             return;
         }
 
-        writeBank(bankFile, createExampleBank());
+        writeBankDefinition(bankFile, createDefaultGlobalBankDefinition());
     }
 
     public static BankDefinition loadGlobalBank(HolderLookup.Provider provider) throws IOException {
@@ -125,7 +126,7 @@ public final class BankFiles {
 
             JsonObject offerObject = offerElement.getAsJsonObject();
             String offerContext = context + ", offer #" + offerIndex;
-            ItemStack stack = ConfigParsing.readItemStack(offerObject, provider, offerContext);
+            ItemStack stack = readBankItemStack(offerObject, provider, offerContext);
             BigInteger price = ConfigParsing.readBigInteger(offerObject, "price", offerContext);
             if (price.signum() < 0) {
                 throw new IOException("Field 'price' in " + offerContext + " must be positive or zero.");
@@ -137,32 +138,76 @@ public final class BankFiles {
         return List.copyOf(offers);
     }
 
-    private static void writeBank(Path bankFile, Bank bank) throws IOException {
+    private static ItemStack readBankItemStack(JsonObject object, HolderLookup.Provider provider, String context) throws IOException {
+        if (object.has("count") && !object.get("count").isJsonNull()) {
+            throw new IOException("Field 'count' is not supported in bank offers anymore. Remove it from " + context + ".");
+        }
+
+        String stackDefinition = ConfigParsing.readOptionalString(object, "stack", null, context);
+        JsonElement itemElement = object.get("item");
+        boolean hasItem = itemElement != null && !itemElement.isJsonNull();
+        if ((stackDefinition == null) == !hasItem) {
+            throw new IOException("Exactly one of 'item' or 'stack' must be set in " + context + ".");
+        }
+
+        if (stackDefinition != null) {
+            try {
+                ItemParser.ItemResult parsed = new ItemParser(provider).parse(new StringReader(stackDefinition));
+                return new ItemStack(parsed.item(), 1, parsed.components());
+            } catch (CommandSyntaxException exception) {
+                throw new IOException("Field 'stack' in " + context + " is invalid: " + stackDefinition, exception);
+            }
+        }
+
+        return new ItemStack(ConfigParsing.readItem(object, "item", context), 1);
+    }
+
+    private static void writeBankDefinition(Path bankFile, BankDefinition bank) throws IOException {
         Files.createDirectories(bankFile.getParent());
         try (Writer writer = Files.newBufferedWriter(bankFile)) {
             GSON.toJson(toJson(bank), writer);
         }
     }
 
-    private static JsonElement toJson(Bank bank) {
+    private static JsonElement toJson(BankDefinition bank) {
         JsonObject root = new JsonObject();
-        JsonArray offersArray = new JsonArray();
-        for (Offer offer : bank) {
-            JsonObject offerObject = new JsonObject();
-            offerObject.addProperty("item", BuiltInRegistries.ITEM.getKey(offer.getItem().getItem()).toString());
-            offerObject.addProperty("count", offer.getItem().getCount());
-            offerObject.addProperty("price", offer.getPrice());
-            offersArray.add(offerObject);
+        JsonArray categoriesArray = new JsonArray();
+        for (BankCategoryDefinition category : bank.categories()) {
+            JsonObject categoryObject = new JsonObject();
+            categoryObject.addProperty("name", category.name());
+            JsonArray offersArray = new JsonArray();
+            for (BankOfferDefinition offer : category.offers()) {
+                JsonObject offerObject = new JsonObject();
+                offerObject.addProperty("item", BuiltInRegistries.ITEM.getKey(offer.createItemStack().getItem()).toString());
+                offerObject.addProperty("price", offer.price());
+                offersArray.add(offerObject);
+            }
+            categoryObject.add("offers", offersArray);
+            categoriesArray.add(categoryObject);
         }
-        root.add("offers", offersArray);
+        root.add("categories", categoriesArray);
         return root;
     }
 
-    private static Bank createExampleBank() {
-        ArrayList<Offer> offers = new ArrayList<>();
-        offers.add(new Offer(new ItemStack(Items.IRON_INGOT, 1), BigInteger.valueOf(8L), -1));
-        offers.add(new Offer(new ItemStack(Items.GOLD_INGOT, 1), BigInteger.valueOf(12L), -1));
-        offers.add(new Offer(new ItemStack(Items.DIAMOND, 1), BigInteger.valueOf(75L), -1));
-        return new Bank(offers);
+    private static BankDefinition createDefaultGlobalBankDefinition() {
+        List<BankCategoryDefinition> categories = List.of(
+                new BankCategoryDefinition("Ores", List.of(
+                        new BankOfferDefinition(new ItemStack(Items.COAL, 1), BigInteger.valueOf(3L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.IRON_INGOT, 1), BigInteger.valueOf(8L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.GOLD_INGOT, 1), BigInteger.valueOf(12L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.DIAMOND, 1), BigInteger.valueOf(75L), ConditionSet.NONE)
+                ), ConditionSet.NONE),
+                new BankCategoryDefinition("Crops", List.of(
+                        new BankOfferDefinition(new ItemStack(Items.WHEAT, 1), BigInteger.valueOf(2L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.CARROT, 1), BigInteger.valueOf(3L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.POTATO, 1), BigInteger.valueOf(3L), ConditionSet.NONE)
+                ), ConditionSet.NONE),
+                new BankCategoryDefinition("Mob Drops", List.of(
+                        new BankOfferDefinition(new ItemStack(Items.ROTTEN_FLESH, 1), BigInteger.valueOf(1L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.BONE, 1), BigInteger.valueOf(2L), ConditionSet.NONE),
+                        new BankOfferDefinition(new ItemStack(Items.STRING, 1), BigInteger.valueOf(2L), ConditionSet.NONE)
+                ), ConditionSet.NONE)
+        );
+        return new BankDefinition(categories, ConditionSet.NONE, getGlobalBankFile());
     }
 }

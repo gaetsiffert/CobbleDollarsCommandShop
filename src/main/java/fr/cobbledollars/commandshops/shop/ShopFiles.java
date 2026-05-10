@@ -49,16 +49,11 @@ public final class ShopFiles {
         return shopFolder.resolve(SHOP_FILENAME);
     }
 
-    public static void ensureExampleShopExists() throws IOException {
+    public static void ensureDefaultShopsExist() throws IOException {
         Files.createDirectories(SHOP_DIRECTORY);
-
-        Path exampleDirectory = SHOP_DIRECTORY.resolve("example");
-        Path exampleShopFile = resolveShopFile(exampleDirectory);
-        if (Files.exists(exampleShopFile)) {
-            return;
-        }
-
-        writeShop(exampleShopFile, createExampleShop());
+        ensureShopExists("general_store", createGeneralStoreShop());
+        ensureShopExists("blacksmith", createBlacksmithShop());
+        ensureShopExists("explorer", createExplorerShop());
     }
 
     public static ShopDefinition parseShopFile(String shopId, Path shopFile, HolderLookup.Provider provider) throws IOException {
@@ -203,16 +198,69 @@ public final class ShopFiles {
         }
     }
 
-    private static ShopDefinition createExampleShop() {
-        List<ShopOfferDefinition> generalOffers = List.of(
-                new ShopOfferDefinition("emerald_pack", new ItemStack(Items.EMERALD, 4), BigInteger.valueOf(25L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("daily_apple", new ItemStack(Items.GOLDEN_APPLE, 1), BigInteger.valueOf(125L), 3,
-                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE),
-                new ShopOfferDefinition("interval_pearl", new ItemStack(Items.ENDER_PEARL, 2), BigInteger.valueOf(80L), 6,
+    private static void ensureShopExists(String shopId, ShopDefinition shop) throws IOException {
+        Path shopFile = resolveShopFile(SHOP_DIRECTORY.resolve(shopId));
+        if (Files.exists(shopFile)) {
+            return;
+        }
+        writeShop(shopFile, shop);
+    }
+
+    private static ShopDefinition createGeneralStoreShop() {
+        List<ShopOfferDefinition> foodOffers = List.of(
+                new ShopOfferDefinition("bread_bundle", new ItemStack(Items.BREAD, 6), BigInteger.valueOf(24L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("cooked_beef", new ItemStack(Items.COOKED_BEEF, 8), BigInteger.valueOf(48L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("golden_apple", new ItemStack(Items.GOLDEN_APPLE, 1), BigInteger.valueOf(140L), 3,
+                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
+        );
+        List<ShopOfferDefinition> utilityOffers = List.of(
+                new ShopOfferDefinition("torch_stack", new ItemStack(Items.TORCH, 32), BigInteger.valueOf(18L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("oak_logs", new ItemStack(Items.OAK_LOG, 16), BigInteger.valueOf(30L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("ender_pearl_pair", new ItemStack(Items.ENDER_PEARL, 2), BigInteger.valueOf(90L), 6,
                         new RestockRule.IntervalRestockRule(1, 300L), ConditionSet.NONE)
         );
-        List<ShopCategoryDefinition> categories = List.of(new ShopCategoryDefinition("General", generalOffers, ConditionSet.NONE));
-        return new ShopDefinition("example", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("example")));
+        List<ShopCategoryDefinition> categories = List.of(
+                new ShopCategoryDefinition("Food", foodOffers, ConditionSet.NONE),
+                new ShopCategoryDefinition("Utilities", utilityOffers, ConditionSet.NONE)
+        );
+        return new ShopDefinition("general_store", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("general_store")));
+    }
+
+    private static ShopDefinition createBlacksmithShop() {
+        List<ShopOfferDefinition> weaponOffers = List.of(
+                new ShopOfferDefinition("iron_sword", new ItemStack(Items.IRON_SWORD, 1), BigInteger.valueOf(90L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("crossbow", new ItemStack(Items.CROSSBOW, 1), BigInteger.valueOf(120L), 4,
+                        new RestockRule.IntervalRestockRule(1, 900L), ConditionSet.NONE)
+        );
+        List<ShopOfferDefinition> toolOffers = List.of(
+                new ShopOfferDefinition("iron_pickaxe", new ItemStack(Items.IRON_PICKAXE, 1), BigInteger.valueOf(110L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("diamond_pickaxe", new ItemStack(Items.DIAMOND_PICKAXE, 1), BigInteger.valueOf(450L), 2,
+                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
+        );
+        List<ShopCategoryDefinition> categories = List.of(
+                new ShopCategoryDefinition("Weapons", weaponOffers, ConditionSet.NONE),
+                new ShopCategoryDefinition("Tools", toolOffers, ConditionSet.NONE)
+        );
+        return new ShopDefinition("blacksmith", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("blacksmith")));
+    }
+
+    private static ShopDefinition createExplorerShop() {
+        List<ShopOfferDefinition> travelOffers = List.of(
+                new ShopOfferDefinition("compass", new ItemStack(Items.COMPASS, 1), BigInteger.valueOf(60L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("map_bundle", new ItemStack(Items.MAP, 3), BigInteger.valueOf(45L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("boat", new ItemStack(Items.OAK_BOAT, 1), BigInteger.valueOf(35L), -1, null, ConditionSet.NONE)
+        );
+        List<ShopOfferDefinition> supplyOffers = List.of(
+                new ShopOfferDefinition("arrow_stack", new ItemStack(Items.ARROW, 32), BigInteger.valueOf(40L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("lead_pair", new ItemStack(Items.LEAD, 2), BigInteger.valueOf(70L), 5,
+                        new RestockRule.IntervalRestockRule(1, 600L), ConditionSet.NONE),
+                new ShopOfferDefinition("water_bucket", new ItemStack(Items.WATER_BUCKET, 1), BigInteger.valueOf(55L), -1, null, ConditionSet.NONE)
+        );
+        List<ShopCategoryDefinition> categories = List.of(
+                new ShopCategoryDefinition("Travel", travelOffers, ConditionSet.NONE),
+                new ShopCategoryDefinition("Supplies", supplyOffers, ConditionSet.NONE)
+        );
+        return new ShopDefinition("explorer", categories, ConditionSet.NONE, resolveShopFile(SHOP_DIRECTORY.resolve("explorer")));
     }
 
     private static JsonElement toJson(ShopDefinition shop) {
