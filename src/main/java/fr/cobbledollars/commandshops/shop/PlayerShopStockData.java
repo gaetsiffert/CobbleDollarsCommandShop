@@ -20,6 +20,7 @@ public final class PlayerShopStockData extends SavedData {
     private static final String INTERVAL_ANCHOR_KEY = "interval_anchor_ms";
     private static final String DAILY_MARKER_KEY = "daily_marker_ms";
     private static final Factory<PlayerShopStockData> FACTORY = new Factory<>(PlayerShopStockData::new, PlayerShopStockData::load);
+    private static final Map<String, ZoneId> ZONE_IDS = new HashMap<>();
 
     private final Map<UUID, Map<String, Map<String, StoredOfferStock>>> playerStocks = new HashMap<>();
 
@@ -67,9 +68,17 @@ public final class PlayerShopStockData extends SavedData {
             return -1;
         }
 
-        StoredOfferStock state = getOrCreateState(playerUuid, shop, offer, nowMillis);
+        StoredOfferStock state = getState(playerUuid, shop, offer);
+        if (state == null) {
+            return offer.stock();
+        }
         if (applyRestock(state, offer, nowMillis)) {
             setDirty();
+        }
+        if (isRedundantState(state, offer)) {
+            removeState(playerUuid, shop, offer);
+            setDirty();
+            return offer.stock();
         }
         return state.stock();
     }
@@ -87,10 +96,16 @@ public final class PlayerShopStockData extends SavedData {
             return;
         }
 
-        StoredOfferStock state = getOrCreateState(playerUuid, shop, offer, nowMillis);
+        StoredOfferStock state = createDefaultState(offer, nowMillis);
         state.setStock(offer.stock());
         state.setIntervalAnchorMillis(nowMillis);
         state.setDailyMarkerMillis(resolveDailyMarker(offer.restockRule(), nowMillis));
+        if (isRedundantState(state, offer)) {
+            removeState(playerUuid, shop, offer);
+            setDirty();
+            return;
+        }
+        setState(playerUuid, shop, offer, state);
         setDirty();
     }
 
@@ -99,7 +114,12 @@ public final class PlayerShopStockData extends SavedData {
             return;
         }
 
-        StoredOfferStock state = getOrCreateState(playerUuid, shop, offer, nowMillis);
+        StoredOfferStock state = getState(playerUuid, shop, offer);
+        if (state == null) {
+            state = createDefaultState(offer, nowMillis);
+            setState(playerUuid, shop, offer, state);
+            setDirty();
+        }
         if (applyRestock(state, offer, nowMillis)) {
             setDirty();
         }
@@ -110,8 +130,36 @@ public final class PlayerShopStockData extends SavedData {
             if (offer.restockRule() instanceof RestockRule.IntervalRestockRule && nextStock < offer.stock()) {
                 state.setIntervalAnchorMillis(nowMillis);
             }
+            if (isRedundantState(state, offer)) {
+                removeState(playerUuid, shop, offer);
+            }
             setDirty();
         }
+    }
+
+    public long findNextRestockAtMillis(UUID playerUuid, ShopDefinition shop, long nowMillis) {
+        Map<String, StoredOfferStock> offers = getShopStates(playerUuid, shop.id());
+        if (offers == null || offers.isEmpty()) {
+            return Long.MAX_VALUE;
+        }
+
+        long nextRestockAtMillis = Long.MAX_VALUE;
+        for (ShopOfferDefinition offer : shop.offers()) {
+            if (!offer.hasFiniteStock() || !offer.hasRestockRule()) {
+                continue;
+            }
+
+            StoredOfferStock state = offers.get(offer.id());
+            if (state == null || state.stock() >= offer.stock()) {
+                continue;
+            }
+
+            long candidate = computeNextRestockAtMillis(state, offer, nowMillis);
+            if (candidate < nextRestockAtMillis) {
+                nextRestockAtMillis = candidate;
+            }
+        }
+        return nextRestockAtMillis;
     }
 
     @Override
@@ -137,22 +185,55 @@ public final class PlayerShopStockData extends SavedData {
         return tag;
     }
 
-    private StoredOfferStock getOrCreateState(UUID playerUuid, ShopDefinition shop, ShopOfferDefinition offer, long nowMillis) {
+    private StoredOfferStock getState(UUID playerUuid, ShopDefinition shop, ShopOfferDefinition offer) {
+        Map<String, StoredOfferStock> offers = getShopStates(playerUuid, shop.id());
+        if (offers == null) {
+            return null;
+        }
+        return offers.get(offer.id());
+    }
+
+    private Map<String, StoredOfferStock> getShopStates(UUID playerUuid, String shopId) {
+        Map<String, Map<String, StoredOfferStock>> shops = playerStocks.get(playerUuid);
+        if (shops == null) {
+            return null;
+        }
+        return shops.get(shopId);
+    }
+
+    private void setState(UUID playerUuid, ShopDefinition shop, ShopOfferDefinition offer, StoredOfferStock state) {
         Map<String, Map<String, StoredOfferStock>> shops = playerStocks.computeIfAbsent(playerUuid, ignored -> new HashMap<>());
         Map<String, StoredOfferStock> offers = shops.computeIfAbsent(shop.id(), ignored -> new HashMap<>());
-        StoredOfferStock existing = offers.get(offer.id());
-        if (existing != null) {
-            return existing;
+        offers.put(offer.id(), state);
+    }
+
+    private void removeState(UUID playerUuid, ShopDefinition shop, ShopOfferDefinition offer) {
+        Map<String, Map<String, StoredOfferStock>> shops = playerStocks.get(playerUuid);
+        if (shops == null) {
+            return;
         }
 
-        StoredOfferStock created = new StoredOfferStock(
+        Map<String, StoredOfferStock> offers = shops.get(shop.id());
+        if (offers == null) {
+            return;
+        }
+        if (offers.remove(offer.id()) == null) {
+            return;
+        }
+        if (offers.isEmpty()) {
+            shops.remove(shop.id());
+        }
+        if (shops.isEmpty()) {
+            playerStocks.remove(playerUuid);
+        }
+    }
+
+    private StoredOfferStock createDefaultState(ShopOfferDefinition offer, long nowMillis) {
+        return new StoredOfferStock(
                 offer.stock(),
                 nowMillis,
                 resolveDailyMarker(offer.restockRule(), nowMillis)
         );
-        offers.put(offer.id(), created);
-        setDirty();
-        return created;
     }
 
     private boolean applyRestock(StoredOfferStock state, ShopOfferDefinition offer, long nowMillis) {
@@ -175,7 +256,7 @@ public final class PlayerShopStockData extends SavedData {
             return false;
         }
 
-        long intervalMillis = Math.multiplyExact(rule.everySeconds(), 1000L);
+        long intervalMillis = rule.everyMillis();
         long elapsed = nowMillis - state.intervalAnchorMillis();
         if (elapsed < intervalMillis) {
             return false;
@@ -220,13 +301,47 @@ public final class PlayerShopStockData extends SavedData {
     }
 
     private long computeDailyMarker(RestockRule.DailyRestockRule rule, long nowMillis) {
-        ZoneId zoneId = ZoneId.of(rule.timeZone());
+        ZoneId zoneId = zoneId(rule.timeZone());
         ZonedDateTime now = Instant.ofEpochMilli(nowMillis).atZone(zoneId);
         ZonedDateTime marker = now.withHour(rule.hour()).withMinute(rule.minute()).withSecond(0).withNano(0);
         if (now.isBefore(marker)) {
             marker = marker.minusDays(1L);
         }
         return marker.toInstant().toEpochMilli();
+    }
+
+    private long computeNextRestockAtMillis(StoredOfferStock state, ShopOfferDefinition offer, long nowMillis) {
+        RestockRule restockRule = offer.restockRule();
+        if (restockRule instanceof RestockRule.IntervalRestockRule intervalRule) {
+            long nextAt = state.intervalAnchorMillis() + intervalRule.everyMillis();
+            return Math.max(nowMillis, nextAt);
+        }
+        if (restockRule instanceof RestockRule.DailyRestockRule dailyRule) {
+            long currentMarker = computeDailyMarker(dailyRule, nowMillis);
+            if (currentMarker > state.dailyMarkerMillis()) {
+                return nowMillis;
+            }
+            return computeNextDailyMarker(dailyRule, nowMillis);
+        }
+        return Long.MAX_VALUE;
+    }
+
+    private long computeNextDailyMarker(RestockRule.DailyRestockRule rule, long nowMillis) {
+        ZoneId zoneId = zoneId(rule.timeZone());
+        ZonedDateTime now = Instant.ofEpochMilli(nowMillis).atZone(zoneId);
+        ZonedDateTime nextMarker = now.withHour(rule.hour()).withMinute(rule.minute()).withSecond(0).withNano(0);
+        if (!nextMarker.isAfter(now)) {
+            nextMarker = nextMarker.plusDays(1L);
+        }
+        return nextMarker.toInstant().toEpochMilli();
+    }
+
+    private static ZoneId zoneId(String timeZone) {
+        return ZONE_IDS.computeIfAbsent(timeZone, ZoneId::of);
+    }
+
+    private static boolean isRedundantState(StoredOfferStock state, ShopOfferDefinition offer) {
+        return state.stock() >= offer.stock();
     }
 
     private static final class StoredOfferStock {

@@ -47,6 +47,10 @@ public final class ShopOfferDefinition {
         return stock >= 0;
     }
 
+    public boolean hasRestockRule() {
+        return restockRule != null;
+    }
+
     public boolean isVisibleTo(ServerPlayer player) {
         return conditions.test(player);
     }

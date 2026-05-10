@@ -18,6 +18,12 @@ public final class ShopDefinition {
     private final ConditionSet conditions;
     private final Path sourceFile;
     private final Map<String, ShopOfferDefinition> offersById;
+    private final List<ShopOfferDefinition> offersInOrder;
+    private final List<ConditionSet> allConditions;
+    private final boolean hasPlayerStateConditions;
+    private final boolean hasDimensionConditions;
+    private final boolean hasTimeConditions;
+    private final boolean hasRestockingOffers;
 
     public ShopDefinition(String id, List<ShopCategoryDefinition> categories, ConditionSet conditions, Path sourceFile) {
         this.id = id;
@@ -25,6 +31,12 @@ public final class ShopDefinition {
         this.conditions = conditions == null ? ConditionSet.NONE : conditions;
         this.sourceFile = sourceFile;
         this.offersById = buildOfferMap(categories);
+        this.offersInOrder = buildOfferList(categories);
+        this.allConditions = collectConditions(this.conditions, categories);
+        this.hasPlayerStateConditions = allConditions.stream().anyMatch(ConditionSet::hasPlayerStateConditions);
+        this.hasDimensionConditions = allConditions.stream().anyMatch(ConditionSet::hasDimensionConditions);
+        this.hasTimeConditions = allConditions.stream().anyMatch(ConditionSet::hasTimeConditions);
+        this.hasRestockingOffers = offersInOrder.stream().anyMatch(offer -> offer.hasFiniteStock() && offer.hasRestockRule());
     }
 
     private static Map<String, ShopOfferDefinition> buildOfferMap(List<ShopCategoryDefinition> categories) {
@@ -35,6 +47,32 @@ public final class ShopDefinition {
             }
         }
         return Map.copyOf(offers);
+    }
+
+    private static List<ShopOfferDefinition> buildOfferList(List<ShopCategoryDefinition> categories) {
+        ArrayList<ShopOfferDefinition> offers = new ArrayList<>();
+        for (ShopCategoryDefinition category : categories) {
+            offers.addAll(category.offers());
+        }
+        return List.copyOf(offers);
+    }
+
+    private static List<ConditionSet> collectConditions(ConditionSet shopConditions, List<ShopCategoryDefinition> categories) {
+        ArrayList<ConditionSet> conditionSets = new ArrayList<>();
+        if (!shopConditions.isEmpty()) {
+            conditionSets.add(shopConditions);
+        }
+        for (ShopCategoryDefinition category : categories) {
+            if (!category.conditions().isEmpty()) {
+                conditionSets.add(category.conditions());
+            }
+            for (ShopOfferDefinition offer : category.offers()) {
+                if (!offer.conditions().isEmpty()) {
+                    conditionSets.add(offer.conditions());
+                }
+            }
+        }
+        return List.copyOf(conditionSets);
     }
 
     public String id() {
@@ -54,7 +92,7 @@ public final class ShopDefinition {
     }
 
     public List<ShopOfferDefinition> offers() {
-        return List.copyOf(offersById.values());
+        return offersInOrder;
     }
 
     public List<String> offerIds() {
@@ -113,6 +151,30 @@ public final class ShopDefinition {
 
     public boolean isAccessibleBy(ServerPlayer player) {
         return conditions.test(player);
+    }
+
+    public boolean hasPlayerStateConditions() {
+        return hasPlayerStateConditions;
+    }
+
+    public boolean hasDimensionConditions() {
+        return hasDimensionConditions;
+    }
+
+    public boolean hasTimeConditions() {
+        return hasTimeConditions;
+    }
+
+    public boolean hasRestockingOffers() {
+        return hasRestockingOffers;
+    }
+
+    public long nextTimeRefreshDelayTicks(long timeOfDay) {
+        long nextDelay = Long.MAX_VALUE;
+        for (ConditionSet conditionSet : allConditions) {
+            nextDelay = Math.min(nextDelay, conditionSet.nextTimeBoundaryDelayTicks(timeOfDay));
+        }
+        return nextDelay;
     }
 
     public Shop createRuntimeShop(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {

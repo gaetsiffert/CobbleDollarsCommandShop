@@ -41,12 +41,16 @@ public final class ShopRegistry {
     }
 
     public static Bank getBank(String shopId, ServerPlayer player) {
+        return getBankDefinition(shopId).createRuntimeBank(player);
+    }
+
+    static BankDefinition getBankDefinition(String shopId) {
         String normalizedShopId = ShopFiles.normalizeId(shopId, "shop id");
         BankDefinition bank = state.shopBanks().get(normalizedShopId);
         if (bank != null) {
-            return bank.createRuntimeBank(player);
+            return bank;
         }
-        return state.globalBank().createRuntimeBank(player);
+        return state.globalBank();
     }
 
     public static List<String> listShopIds() {

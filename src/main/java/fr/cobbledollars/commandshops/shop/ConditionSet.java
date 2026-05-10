@@ -26,6 +26,10 @@ public final class ConditionSet {
     private final List<ResourceLocation> dimensionsAny;
     private final List<TimeRangeCondition> timeRangesAny;
     private final List<ScoreCondition> scoresAll;
+    private final boolean empty;
+    private final boolean hasPlayerStateConditions;
+    private final boolean hasDimensionConditions;
+    private final boolean hasTimeConditions;
 
     public ConditionSet(
             List<String> playerTagsAll,
@@ -45,6 +49,15 @@ public final class ConditionSet {
         this.dimensionsAny = List.copyOf(dimensionsAny);
         this.timeRangesAny = List.copyOf(timeRangesAny);
         this.scoresAll = List.copyOf(scoresAll);
+        this.hasPlayerStateConditions = !this.playerTagsAll.isEmpty()
+                || !this.playerTagsAny.isEmpty()
+                || !this.playerTagsNone.isEmpty()
+                || !this.advancementsAll.isEmpty()
+                || !this.advancementsAny.isEmpty()
+                || !this.scoresAll.isEmpty();
+        this.hasDimensionConditions = !this.dimensionsAny.isEmpty();
+        this.hasTimeConditions = !this.timeRangesAny.isEmpty();
+        this.empty = !hasPlayerStateConditions && !hasDimensionConditions && !hasTimeConditions;
     }
 
     public static ConditionSet readOptional(JsonObject object, String context) throws IOException {
@@ -80,14 +93,33 @@ public final class ConditionSet {
     }
 
     public boolean isEmpty() {
-        return this == NONE || (playerTagsAll.isEmpty()
-                && playerTagsAny.isEmpty()
-                && playerTagsNone.isEmpty()
-                && advancementsAll.isEmpty()
-                && advancementsAny.isEmpty()
-                && dimensionsAny.isEmpty()
-                && timeRangesAny.isEmpty()
-                && scoresAll.isEmpty());
+        return empty;
+    }
+
+    public boolean hasPlayerStateConditions() {
+        return hasPlayerStateConditions;
+    }
+
+    public boolean hasDimensionConditions() {
+        return hasDimensionConditions;
+    }
+
+    public boolean hasTimeConditions() {
+        return hasTimeConditions;
+    }
+
+    public long nextTimeBoundaryDelayTicks(long timeOfDay) {
+        if (!hasTimeConditions) {
+            return Long.MAX_VALUE;
+        }
+
+        long normalizedTime = Math.floorMod(timeOfDay, 24000L);
+        long nextDelay = Long.MAX_VALUE;
+        for (TimeRangeCondition timeRange : timeRangesAny) {
+            nextDelay = Math.min(nextDelay, delayToBoundary(normalizedTime, timeRange.startTick()));
+            nextDelay = Math.min(nextDelay, delayToBoundary(normalizedTime, timeRange.endTick()));
+        }
+        return nextDelay;
     }
 
     public boolean test(ServerPlayer player) {
@@ -99,11 +131,22 @@ public final class ConditionSet {
         if (!playerTags.containsAll(playerTagsAll)) {
             return false;
         }
-        if (!playerTagsAny.isEmpty() && playerTagsAny.stream().noneMatch(playerTags::contains)) {
-            return false;
+        if (!playerTagsAny.isEmpty()) {
+            boolean matched = false;
+            for (String requiredTag : playerTagsAny) {
+                if (playerTags.contains(requiredTag)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
         }
-        if (playerTagsNone.stream().anyMatch(playerTags::contains)) {
-            return false;
+        for (String forbiddenTag : playerTagsNone) {
+            if (playerTags.contains(forbiddenTag)) {
+                return false;
+            }
         }
 
         for (ResourceLocation advancementId : advancementsAll) {
@@ -111,20 +154,43 @@ public final class ConditionSet {
                 return false;
             }
         }
-        if (!advancementsAny.isEmpty() && advancementsAny.stream().noneMatch(advancementId -> hasAdvancement(player, advancementId))) {
-            return false;
+        if (!advancementsAny.isEmpty()) {
+            boolean matched = false;
+            for (ResourceLocation advancementId : advancementsAny) {
+                if (hasAdvancement(player, advancementId)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
         }
 
         if (!dimensionsAny.isEmpty()) {
             ResourceLocation currentDimension = player.level().dimension().location();
-            if (dimensionsAny.stream().noneMatch(currentDimension::equals)) {
+            boolean matched = false;
+            for (ResourceLocation dimensionId : dimensionsAny) {
+                if (currentDimension.equals(dimensionId)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
                 return false;
             }
         }
 
         if (!timeRangesAny.isEmpty()) {
-            long timeOfDay = player.level().getDayTime() % 24000L;
-            if (timeRangesAny.stream().noneMatch(range -> range.test(timeOfDay))) {
+            long timeOfDay = Math.floorMod(player.level().getDayTime(), 24000L);
+            boolean matched = false;
+            for (TimeRangeCondition range : timeRangesAny) {
+                if (range.test(timeOfDay)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
                 return false;
             }
         }
@@ -141,6 +207,14 @@ public final class ConditionSet {
     private static boolean hasAdvancement(ServerPlayer player, ResourceLocation advancementId) {
         AdvancementHolder advancement = player.getServer().getAdvancements().get(advancementId);
         return advancement != null && player.getAdvancements().getOrStartProgress(advancement).isDone();
+    }
+
+    private static long delayToBoundary(long currentTimeOfDay, int boundaryTick) {
+        long delay = boundaryTick - currentTimeOfDay;
+        if (delay <= 0L) {
+            delay += 24000L;
+        }
+        return delay;
     }
 
     private static List<String> readStringArray(JsonObject object, String key, String context) throws IOException {
