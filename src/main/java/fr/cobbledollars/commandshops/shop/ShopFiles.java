@@ -11,9 +11,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -33,20 +31,30 @@ public final class ShopFiles {
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .create();
-    private static final String SHOP_EXTENSION = ".json";
-    private static final String EXAMPLE_FILENAME = "example.json";
-    private static final Path SHOP_DIRECTORY = FMLPaths.CONFIGDIR.get().resolve(CobbleDollarsCommandShopsMod.MODID).resolve("shops");
+    private static final String SHOP_FILENAME = "shop.json";
+    private static final Path CONFIG_DIRECTORY = FMLPaths.CONFIGDIR.get().resolve(CobbleDollarsCommandShopsMod.MODID);
+    private static final Path SHOP_DIRECTORY = CONFIG_DIRECTORY.resolve("shops");
 
     private ShopFiles() {
+    }
+
+    public static Path getConfigDirectory() {
+        return CONFIG_DIRECTORY;
     }
 
     public static Path getShopDirectory() {
         return SHOP_DIRECTORY;
     }
 
+    public static Path resolveShopFile(Path shopFolder) {
+        return shopFolder.resolve(SHOP_FILENAME);
+    }
+
     public static void ensureExampleShopExists() throws IOException {
-        ensureShopDirectory();
-        Path exampleShopFile = SHOP_DIRECTORY.resolve(EXAMPLE_FILENAME);
+        Files.createDirectories(SHOP_DIRECTORY);
+
+        Path exampleDirectory = SHOP_DIRECTORY.resolve("example");
+        Path exampleShopFile = resolveShopFile(exampleDirectory);
         if (Files.exists(exampleShopFile)) {
             return;
         }
@@ -54,43 +62,8 @@ public final class ShopFiles {
         writeShop(exampleShopFile, createExampleShop());
     }
 
-    public static ShopDefinition loadShop(String shopId) throws IOException {
-        Map<String, ShopDefinition> shops = loadAllShops();
-        ShopDefinition shop = shops.get(normalizeId(shopId, "shop id"));
-        if (shop == null) {
-            throw new IOException("Shop '" + shopId + "' was not found in " + SHOP_DIRECTORY + ".");
-        }
-        return shop;
-    }
-
-    public static List<String> listShopIds() throws IOException {
-        return loadAllShops().keySet().stream().sorted().toList();
-    }
-
-    public static Map<String, ShopDefinition> loadAllShops() throws IOException {
-        ensureShopDirectory();
-        java.util.LinkedHashMap<String, ShopDefinition> shops = new java.util.LinkedHashMap<>();
-
-        try (Stream<Path> paths = Files.walk(SHOP_DIRECTORY)) {
-            List<Path> shopFiles = paths
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(SHOP_EXTENSION))
-                    .sorted()
-                    .toList();
-
-            for (Path shopFile : shopFiles) {
-                ShopDefinition shop = parseShopFile(shopFile);
-                ShopDefinition existing = shops.putIfAbsent(shop.id(), shop);
-                if (existing != null) {
-                    throw new IOException("Duplicate shop id '" + shop.id() + "' in " + existing.sourceFile() + " and " + shop.sourceFile() + ".");
-                }
-            }
-        }
-
-        return Map.copyOf(shops);
-    }
-
-    private static ShopDefinition parseShopFile(Path shopFile) throws IOException {
+    public static ShopDefinition parseShopFile(String shopId, Path shopFile) throws IOException {
+        String normalizedShopId = normalizeId(shopId, "shop id");
         try (Reader reader = Files.newBufferedReader(shopFile)) {
             JsonElement root = JsonParser.parseReader(reader);
             if (root == null || root.isJsonNull()) {
@@ -98,21 +71,28 @@ public final class ShopFiles {
             }
 
             if (root.isJsonArray()) {
-                return parseLegacyShop(shopFile, root.getAsJsonArray());
+                return parseLegacyShop(normalizedShopId, shopFile, root.getAsJsonArray());
             }
             if (root.isJsonObject()) {
-                return parseModernShop(shopFile, root.getAsJsonObject());
+                return parseModernShop(normalizedShopId, shopFile, root.getAsJsonObject());
             }
 
-            throw new IOException("Shop file '" + shopFile + "' must be a JSON object.");
+            throw new IOException("Shop file '" + shopFile + "' must be a JSON object or array.");
         } catch (RuntimeException exception) {
             throw new IOException("Shop file '" + shopFile + "' could not be parsed.", exception);
         }
     }
 
-    private static ShopDefinition parseModernShop(Path shopFile, JsonObject rootObject) throws IOException {
+    public static String normalizeId(String id, String label) {
+        String normalizedId = id.toLowerCase(Locale.ROOT);
+        if (!normalizedId.matches("[a-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid " + label + ": " + id + ". Use only lowercase letters, numbers, underscores, and hyphens.");
+        }
+        return normalizedId;
+    }
+
+    private static ShopDefinition parseModernShop(String shopId, Path shopFile, JsonObject rootObject) throws IOException {
         String context = "shop file '" + shopFile + "'";
-        String shopId = readRequiredId(rootObject, "id", context);
         JsonArray categoriesArray = readRequiredArray(rootObject, "categories", context);
 
         Set<String> seenOfferIds = new HashSet<>();
@@ -141,34 +121,33 @@ public final class ShopFiles {
         return new ShopDefinition(shopId, categories, shopFile);
     }
 
-    private static ShopDefinition parseLegacyShop(Path shopFile, JsonArray categoryArray) throws IOException {
-        String legacyId = normalizeId(stripExtension(shopFile.getFileName().toString()), "legacy shop filename");
+    private static ShopDefinition parseLegacyShop(String shopId, Path shopFile, JsonArray categoryArray) throws IOException {
         Set<String> seenOfferIds = new HashSet<>();
         List<ShopCategoryDefinition> categories = new ArrayList<>();
 
         for (int categoryIndex = 0; categoryIndex < categoryArray.size(); categoryIndex++) {
             JsonElement categoryElement = categoryArray.get(categoryIndex);
             if (!categoryElement.isJsonObject()) {
-                throw new IOException("Category #" + categoryIndex + " in legacy shop '" + legacyId + "' must be an object.");
+                throw new IOException("Category #" + categoryIndex + " in legacy shop '" + shopId + "' must be an object.");
             }
 
             JsonObject categoryObject = categoryElement.getAsJsonObject();
             if (categoryObject.entrySet().isEmpty()) {
-                throw new IOException("Category #" + categoryIndex + " in legacy shop '" + legacyId + "' is empty.");
+                throw new IOException("Category #" + categoryIndex + " in legacy shop '" + shopId + "' is empty.");
             }
 
-            for (Map.Entry<String, JsonElement> entry : categoryObject.entrySet()) {
+            for (var entry : categoryObject.entrySet()) {
                 String categoryName = entry.getKey();
                 if (!entry.getValue().isJsonArray()) {
-                    throw new IOException("Category '" + categoryName + "' in legacy shop '" + legacyId + "' must contain an array of offers.");
+                    throw new IOException("Category '" + categoryName + "' in legacy shop '" + shopId + "' must contain an array of offers.");
                 }
 
                 JsonArray offersArray = entry.getValue().getAsJsonArray();
                 List<ShopOfferDefinition> offers = new ArrayList<>();
                 for (int offerIndex = 0; offerIndex < offersArray.size(); offerIndex++) {
-                    ShopOfferDefinition offer = parseLegacyOffer(offersArray.get(offerIndex), legacyId, categoryName, offerIndex);
+                    ShopOfferDefinition offer = parseLegacyOffer(offersArray.get(offerIndex), shopId, categoryName, offerIndex);
                     if (!seenOfferIds.add(offer.id())) {
-                        throw new IOException("Duplicate legacy offer id '" + offer.id() + "' in shop '" + legacyId + "'. Add explicit ids or rename the duplicated item entries.");
+                        throw new IOException("Duplicate legacy offer id '" + offer.id() + "' in shop '" + shopId + "'. Add explicit ids or rename the duplicated item entries.");
                     }
                     offers.add(offer);
                 }
@@ -176,7 +155,7 @@ public final class ShopFiles {
             }
         }
 
-        return new ShopDefinition(legacyId, categories, shopFile);
+        return new ShopDefinition(shopId, categories, shopFile);
     }
 
     private static ShopOfferDefinition parseOffer(JsonElement offerElement, String shopId, String categoryName, int offerIndex) throws IOException {
@@ -186,8 +165,8 @@ public final class ShopFiles {
         }
 
         JsonObject offerObject = offerElement.getAsJsonObject();
-        String offerId = readRequiredId(offerObject, "id", context);
-        return parseOfferBody(offerObject, shopId, categoryName, offerIndex, offerId);
+        String offerId = normalizeId(readRequiredString(offerObject, "id", context), "offer id");
+        return parseOfferBody(offerObject, shopId, categoryName, offerId);
     }
 
     private static ShopOfferDefinition parseLegacyOffer(JsonElement offerElement, String shopId, String categoryName, int offerIndex) throws IOException {
@@ -198,10 +177,10 @@ public final class ShopFiles {
 
         JsonObject offerObject = offerElement.getAsJsonObject();
         String derivedId = deriveLegacyOfferId(offerObject, offerIndex, context);
-        return parseOfferBody(offerObject, shopId, categoryName, offerIndex, derivedId);
+        return parseOfferBody(offerObject, shopId, categoryName, derivedId);
     }
 
-    private static ShopOfferDefinition parseOfferBody(JsonObject offerObject, String shopId, String categoryName, int offerIndex, String offerId) throws IOException {
+    private static ShopOfferDefinition parseOfferBody(JsonObject offerObject, String shopId, String categoryName, String offerId) throws IOException {
         String context = "shop '" + shopId + "', category '" + categoryName + "', offer '" + offerId + "'";
         Item item = readItem(offerObject, "item", context);
         int count = readInt(offerObject, "count", 1, context);
@@ -272,10 +251,6 @@ public final class ShopFiles {
         };
     }
 
-    private static void ensureShopDirectory() throws IOException {
-        Files.createDirectories(SHOP_DIRECTORY);
-    }
-
     private static void writeShop(Path shopFile, ShopDefinition shop) throws IOException {
         Files.createDirectories(shopFile.getParent());
         try (Writer writer = Files.newBufferedWriter(shopFile)) {
@@ -292,12 +267,11 @@ public final class ShopFiles {
                         new RestockRule.IntervalRestockRule(1, 300L))
         );
         List<ShopCategoryDefinition> categories = List.of(new ShopCategoryDefinition("General", generalOffers));
-        return new ShopDefinition("example", categories, SHOP_DIRECTORY.resolve(EXAMPLE_FILENAME));
+        return new ShopDefinition("example", categories, resolveShopFile(SHOP_DIRECTORY.resolve("example")));
     }
 
     private static JsonElement toJson(ShopDefinition shop) {
         JsonObject root = new JsonObject();
-        root.addProperty("id", shop.id());
         JsonArray categoriesArray = new JsonArray();
         for (ShopCategoryDefinition category : shop.categories()) {
             JsonObject categoryObject = new JsonObject();
@@ -351,10 +325,6 @@ public final class ShopFiles {
             throw new IOException("Field 'item' in " + context + " is not a valid item id: " + itemId, exception);
         }
         return normalizeId(path + "_" + offerIndex, "legacy offer id");
-    }
-
-    private static String readRequiredId(JsonObject object, String key, String context) throws IOException {
-        return normalizeId(readRequiredString(object, key, context), key);
     }
 
     private static JsonArray readRequiredArray(JsonObject object, String key, String context) throws IOException {
@@ -457,20 +427,5 @@ public final class ShopFiles {
         } catch (NumberFormatException exception) {
             throw new IOException("Field '" + key + "' in " + context + " is not a valid integer.", exception);
         }
-    }
-
-    private static String normalizeId(String id, String label) {
-        String normalizedId = id.toLowerCase(Locale.ROOT);
-        if (!normalizedId.matches("[a-z0-9_-]+")) {
-            throw new IllegalArgumentException("Invalid " + label + ": " + id + ". Use only lowercase letters, numbers, underscores, and hyphens.");
-        }
-        return normalizedId;
-    }
-
-    private static String stripExtension(String fileName) {
-        if (fileName.endsWith(SHOP_EXTENSION)) {
-            return fileName.substring(0, fileName.length() - SHOP_EXTENSION.length());
-        }
-        return fileName;
     }
 }

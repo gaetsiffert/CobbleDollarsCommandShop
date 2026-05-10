@@ -1,6 +1,5 @@
 package fr.cobbledollars.commandshops.command;
 
-import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -15,8 +14,8 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
-import fr.cobbledollars.commandshops.shop.ShopFiles;
 import fr.cobbledollars.commandshops.shop.ShopOfferDefinition;
+import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -45,6 +44,8 @@ public final class CommandShopCommands {
                                                 context.getSource(),
                                                 StringArgumentType.getString(context, "shop"),
                                                 EntityArgument.getPlayers(context, "targets"))))))
+                .then(Commands.literal("reload")
+                        .executes(context -> reload(context.getSource())))
                 .then(Commands.literal("restock")
                         .then(Commands.argument("shop", StringArgumentType.word())
                                 .suggests(CommandShopCommands::suggestShopIds)
@@ -103,6 +104,20 @@ public final class CommandShopCommands {
 
         source.sendSuccess(() -> Component.literal("Opened shop '" + shop.id() + "' for " + targets.size() + " player(s)."), false);
         return targets.size();
+    }
+
+    private static int reload(CommandSourceStack source) throws CommandSyntaxException {
+        try {
+            ShopRegistry.ReloadSummary summary = ShopRegistry.reload();
+            CommandShopSessions.refreshAllSessions(source.getServer());
+            source.sendSuccess(() -> Component.literal(
+                    "Reloaded " + summary.shopCount() + " shop(s), "
+                            + summary.localBankCount() + " local bank(s), global bank '" + summary.globalBankFile() + "'."),
+                    true);
+            return 1;
+        } catch (Exception exception) {
+            throw SHOP_ERROR.create("Failed to reload shops: " + exception.getMessage());
+        }
     }
 
     private static int restockShop(CommandSourceStack source, String shopId, Collection<ServerPlayer> targets) throws CommandSyntaxException {
@@ -178,33 +193,23 @@ public final class CommandShopCommands {
     }
 
     private static int listShops(CommandSourceStack source) {
-        try {
-            ShopFiles.ensureExampleShopExists();
-            List<String> shopIds = ShopFiles.listShopIds();
-            if (shopIds.isEmpty()) {
-                source.sendFailure(Component.literal("No shop files found in " + ShopFiles.getShopDirectory()));
-                return 0;
-            }
-
-            source.sendSuccess(() -> Component.literal("Available shops: " + String.join(", ", shopIds)), false);
-            return shopIds.size();
-        } catch (IOException exception) {
-            source.sendFailure(Component.literal("Failed to read shop directory: " + exception.getMessage()));
+        List<String> shopIds = ShopRegistry.listShopIds();
+        if (shopIds.isEmpty()) {
+            source.sendFailure(Component.literal("No shop folders found in " + ShopRegistry.getShopDirectory()));
             return 0;
         }
+
+        source.sendSuccess(() -> Component.literal("Available shops: " + String.join(", ", shopIds)), false);
+        return shopIds.size();
     }
 
     private static int showDirectory(CommandSourceStack source) {
-        source.sendSuccess(() -> Component.literal("Shop directory: " + ShopFiles.getShopDirectory()), false);
+        source.sendSuccess(() -> Component.literal("Shops directory: " + ShopRegistry.getShopDirectory() + " | global bank: " + ShopRegistry.getGlobalBankFile()), false);
         return 1;
     }
 
     private static CompletableFuture<Suggestions> suggestShopIds(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
-        try {
-            return SharedSuggestionProvider.suggest(ShopFiles.listShopIds(), builder);
-        } catch (IOException exception) {
-            return Suggestions.empty();
-        }
+        return SharedSuggestionProvider.suggest(ShopRegistry.listShopIds(), builder);
     }
 
     private static CompletableFuture<Suggestions> suggestOfferIds(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
@@ -226,8 +231,12 @@ public final class CommandShopCommands {
 
     private static ShopDefinition loadShop(String shopId) throws CommandSyntaxException {
         try {
-            return ShopFiles.loadShop(shopId);
-        } catch (IOException | IllegalArgumentException exception) {
+            ShopDefinition shop = ShopRegistry.getShop(shopId);
+            if (shop == null) {
+                throw new IllegalArgumentException("Shop '" + shopId + "' was not found in " + ShopRegistry.getShopDirectory() + ".");
+            }
+            return shop;
+        } catch (IllegalArgumentException exception) {
             throw SHOP_ERROR.create(exception.getMessage());
         }
     }

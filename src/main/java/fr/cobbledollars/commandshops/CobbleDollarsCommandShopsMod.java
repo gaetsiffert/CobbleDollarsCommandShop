@@ -3,9 +3,8 @@ package fr.cobbledollars.commandshops;
 import java.io.IOException;
 
 import fr.cobbledollars.commandshops.command.CommandShopCommands;
-import fr.cobbledollars.commandshops.shop.BankFiles;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
-import fr.cobbledollars.commandshops.shop.ShopFiles;
+import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
@@ -32,8 +31,7 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         try {
-            ShopFiles.ensureExampleShopExists();
-            BankFiles.ensureExampleBankExists();
+            ShopRegistry.initialize();
         } catch (IOException exception) {
             LOGGER.error("Failed to prepare NPC shop directory", exception);
         }
@@ -59,5 +57,6 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         CommandShopSessions.cleanupAll(event.getServer());
+        ShopRegistry.clear();
     }
 }

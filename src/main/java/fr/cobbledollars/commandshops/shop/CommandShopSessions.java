@@ -8,13 +8,13 @@ import java.util.Map;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
-import fr.harmex.cobbledollars.common.network.packets.s2c.SyncShopConfigPacket;
 import fr.harmex.cobbledollars.common.network.packets.c2s.BuyPacket;
+import fr.harmex.cobbledollars.common.network.packets.s2c.SyncShopConfigPacket;
 import fr.harmex.cobbledollars.common.network.packets.s2c.SyncShopPacket;
 import fr.harmex.cobbledollars.common.network.packets.s2c.UpdateStockPacket;
 import fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt;
-import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.entity.ClientSideCobbleDollarsShopHolder;
+import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import fr.harmex.cobbledollars.common.world.item.trading.CobbleDollarsShopHolder;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Category;
@@ -25,9 +25,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.SimpleContainer;
 
 public final class CommandShopSessions {
     private static final Map<UUID, CommandShopSession> ACTIVE_SESSIONS = new HashMap<>();
@@ -53,7 +53,7 @@ public final class CommandShopSessions {
         }
 
         UUID sessionUuid = UUID.randomUUID();
-        CommandShopSession session = new CommandShopSession(shop, sessionUuid, shopMenu.containerId);
+        CommandShopSession session = new CommandShopSession(shop.id(), sessionUuid, shopMenu.containerId);
         ACTIVE_SESSIONS.put(player.getUUID(), session);
         sendFullSync(player, session, runtimeShop);
     }
@@ -69,11 +69,16 @@ public final class CommandShopSessions {
             return false;
         }
 
+        ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (shop == null) {
+            return true;
+        }
+
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = session.shop().createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop runtimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
         PlayerExtensionKt.openBank(player, createSessionHolder(session.sessionUuid(), runtimeShop));
-        syncClientBankConfig(player, runtimeShop);
+        syncClientBankConfig(player, shop.id(), runtimeShop);
         return true;
     }
 
@@ -83,7 +88,17 @@ public final class CommandShopSessions {
             return false;
         }
 
-        openShop(player, session.shop());
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+
+        ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (shop == null) {
+            return true;
+        }
+
+        openShop(player, shop);
         return true;
     }
 
@@ -109,12 +124,17 @@ public final class CommandShopSessions {
             return true;
         }
 
+        ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (shop == null) {
+            return true;
+        }
+
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         long nowMillis = System.currentTimeMillis();
-        Shop currentRuntimeShop = session.shop().createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop currentRuntimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
         refreshSessionShop(player, session, currentRuntimeShop);
 
-        ShopOfferDefinition offerDefinition = session.shop().getOffer(packet.getCategoryIndex(), packet.getOfferIndex());
+        ShopOfferDefinition offerDefinition = shop.getOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (offerDefinition == null) {
             return true;
         }
@@ -147,7 +167,7 @@ public final class CommandShopSessions {
         }
 
         if (offerDefinition.hasFiniteStock()) {
-            stockData.consumeStock(player.getUUID(), session.shop(), offerDefinition, amount, nowMillis);
+            stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
         }
 
         PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
@@ -156,7 +176,7 @@ public final class CommandShopSessions {
                 ((player.getRandom().nextFloat() - player.getRandom().nextFloat()) * 0.7F + 1.0F) * 2.0F);
         player.containerMenu.broadcastChanges();
 
-        Shop updatedRuntimeShop = session.shop().createRuntimeShop(stockData, player.getUUID(), nowMillis);
+        Shop updatedRuntimeShop = shop.createRuntimeShop(stockData, player.getUUID(), nowMillis);
         refreshSessionShop(player, session, updatedRuntimeShop);
         return true;
     }
@@ -164,13 +184,35 @@ public final class CommandShopSessions {
     public static void refreshPlayerSession(ServerPlayer player) {
         CommandShopSession session = ACTIVE_SESSIONS.get(player.getUUID());
         MinecraftServer server = player.getServer();
-        if (session == null || !isViewingSessionShop(player, session) || server == null) {
+        if (session == null || server == null) {
+            return;
+        }
+
+        ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (shop == null) {
             return;
         }
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = session.shop().createRuntimeShop(stockData, player.getUUID(), System.currentTimeMillis());
-        refreshSessionShop(player, session, runtimeShop);
+        Shop runtimeShop = shop.createRuntimeShop(stockData, player.getUUID(), System.currentTimeMillis());
+        if (isViewingSessionShop(player, session)) {
+            refreshSessionShop(player, session, runtimeShop);
+            return;
+        }
+        if (isViewingSessionBank(player, session)) {
+            syncClientBankConfig(player, shop.id(), runtimeShop);
+        }
+    }
+
+    public static void refreshAllSessions(MinecraftServer server) {
+        for (UUID playerUuid : ACTIVE_SESSIONS.keySet().toArray(UUID[]::new)) {
+            ServerPlayer player = server.getPlayerList().getPlayer(playerUuid);
+            if (player == null) {
+                ACTIVE_SESSIONS.remove(playerUuid);
+                continue;
+            }
+            refreshPlayerSession(player);
+        }
     }
 
     public static void tick(MinecraftServer server) {
@@ -204,11 +246,16 @@ public final class CommandShopSessions {
             return false;
         }
 
+        ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (shop == null) {
+            return true;
+        }
+
         BankMenu bankMenu = requireBankMenu(player);
         SimpleContainer bankContainer = bankMenu.getBankContainer();
         BigInteger totalValue = BigInteger.ZERO;
         try {
-            var bank = BankFiles.loadBank();
+            var bank = ShopRegistry.getBank(shop.id());
             for (int slot = 0; slot < bankContainer.getContainerSize(); slot++) {
                 ItemStack stack = bankContainer.getItem(slot);
                 if (stack.isEmpty()) {
@@ -235,6 +282,17 @@ public final class CommandShopSessions {
         bankContainer.setChanged();
         bankMenu.broadcastChanges();
         return true;
+    }
+
+    private static ShopDefinition resolveSessionShop(MinecraftServer server, ServerPlayer player, CommandShopSession session) {
+        ShopDefinition shop = ShopRegistry.getShop(session.shopId());
+        if (shop != null) {
+            return shop;
+        }
+
+        cleanupPlayer(server, player.getUUID());
+        player.sendSystemMessage(Component.literal("Shop '" + session.shopId() + "' no longer exists after reload."));
+        return null;
     }
 
     private static boolean isViewingSession(ServerPlayer player, CommandShopSession session) {
@@ -329,9 +387,9 @@ public final class CommandShopSessions {
         new UpdateStockPacket(categoryIndex, offerIndex, stock, session.sessionUuid()).sendToPlayer(player);
     }
 
-    private static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop) {
+    private static void syncClientBankConfig(ServerPlayer player, String shopId, Shop runtimeShop) {
         try {
-            new SyncShopConfigPacket(runtimeShop, BankFiles.loadBank()).sendToPlayer(player);
+            new SyncShopConfigPacket(runtimeShop, ShopRegistry.getBank(shopId)).sendToPlayer(player);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sync custom bank config for {}", player.getGameProfile().getName(), exception);
             player.sendSystemMessage(Component.literal("Failed to load custom bank config: " + exception.getMessage()));
@@ -379,6 +437,6 @@ public final class CommandShopSessions {
         return holder;
     }
 
-    private record CommandShopSession(ShopDefinition shop, UUID sessionUuid, int containerId) {
+    private record CommandShopSession(String shopId, UUID sessionUuid, int containerId) {
     }
 }

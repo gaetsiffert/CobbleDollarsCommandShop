@@ -15,7 +15,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -23,52 +22,68 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.neoforged.fml.loading.FMLPaths;
 
 public final class BankFiles {
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .create();
-    private static final String BANK_FILENAME = "bank.json";
-    private static final Path BANK_FILE = FMLPaths.CONFIGDIR.get().resolve(CobbleDollarsCommandShopsMod.MODID).resolve(BANK_FILENAME);
+    private static final String GLOBAL_BANK_FILENAME = "global_bank.json";
+    private static final String LOCAL_BANK_FILENAME = "bank.json";
 
     private BankFiles() {
     }
 
-    public static Path getBankFile() {
-        return BANK_FILE;
+    public static Path getGlobalBankFile() {
+        return ShopFiles.getConfigDirectory().resolve(GLOBAL_BANK_FILENAME);
     }
 
-    public static void ensureExampleBankExists() throws IOException {
-        Files.createDirectories(BANK_FILE.getParent());
-        if (Files.exists(BANK_FILE)) {
+    public static Path resolveLocalBankFile(Path shopFolder) {
+        return shopFolder.resolve(LOCAL_BANK_FILENAME);
+    }
+
+    public static void ensureExampleGlobalBankExists() throws IOException {
+        Path bankFile = getGlobalBankFile();
+        Files.createDirectories(bankFile.getParent());
+        if (Files.exists(bankFile)) {
             return;
         }
 
-        writeBank(createExampleBank());
+        writeBank(bankFile, createExampleBank());
     }
 
-    public static Bank loadBank() throws IOException {
-        Files.createDirectories(BANK_FILE.getParent());
-        try (Reader reader = Files.newBufferedReader(BANK_FILE)) {
+    public static Bank loadGlobalBank() throws IOException {
+        return loadBankFile(getGlobalBankFile());
+    }
+
+    public static Bank loadBankFile(Path bankFile) throws IOException {
+        Files.createDirectories(bankFile.getParent());
+        try (Reader reader = Files.newBufferedReader(bankFile)) {
             JsonElement root = JsonParser.parseReader(reader);
             if (root == null || root.isJsonNull()) {
-                throw new IOException("Bank file '" + BANK_FILE + "' is empty.");
+                throw new IOException("Bank file '" + bankFile + "' is empty.");
             }
 
             if (root.isJsonArray()) {
-                return parseOffersArray(root.getAsJsonArray(), "bank file '" + BANK_FILE + "'");
+                return parseOffersArray(root.getAsJsonArray(), "bank file '" + bankFile + "'");
             }
             if (root.isJsonObject()) {
                 JsonObject rootObject = root.getAsJsonObject();
-                JsonArray offersArray = readRequiredArray(rootObject, "offers", "bank file '" + BANK_FILE + "'");
-                return parseOffersArray(offersArray, "bank file '" + BANK_FILE + "'");
+                JsonArray offersArray = readRequiredArray(rootObject, "offers", "bank file '" + bankFile + "'");
+                return parseOffersArray(offersArray, "bank file '" + bankFile + "'");
             }
 
-            throw new IOException("Bank file '" + BANK_FILE + "' must be a JSON object or array.");
+            throw new IOException("Bank file '" + bankFile + "' must be a JSON object or array.");
         } catch (RuntimeException exception) {
-            throw new IOException("Bank file '" + BANK_FILE + "' could not be parsed.", exception);
+            throw new IOException("Bank file '" + bankFile + "' could not be parsed.", exception);
         }
+    }
+
+    public static Bank copyBank(Bank bank) {
+        ArrayList<Offer> offers = new ArrayList<>();
+        for (Offer offer : bank) {
+            offers.add(new Offer(offer.getItem().copy(), offer.getPrice(), offer.getStock()));
+        }
+        return new Bank(offers);
     }
 
     private static Bank parseOffersArray(JsonArray offersArray, String context) throws IOException {
@@ -96,9 +111,9 @@ public final class BankFiles {
         return new Bank(new ArrayList<>(offers));
     }
 
-    private static void writeBank(Bank bank) throws IOException {
-        Files.createDirectories(BANK_FILE.getParent());
-        try (Writer writer = Files.newBufferedWriter(BANK_FILE)) {
+    private static void writeBank(Path bankFile, Bank bank) throws IOException {
+        Files.createDirectories(bankFile.getParent());
+        try (Writer writer = Files.newBufferedWriter(bankFile)) {
             GSON.toJson(toJson(bank), writer);
         }
     }
