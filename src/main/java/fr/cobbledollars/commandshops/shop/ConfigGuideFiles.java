@@ -242,6 +242,9 @@ public final class ConfigGuideFiles {
                 }
                 ```
 
+                For `interval` restock, the recovery timer starts when stock first drops below full.
+                Later purchases do not restart that timer while the offer is still below its maximum stock.
+
                 Daily reset:
 
                 ```json

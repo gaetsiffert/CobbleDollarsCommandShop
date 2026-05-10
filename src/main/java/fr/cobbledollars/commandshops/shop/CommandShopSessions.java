@@ -51,20 +51,17 @@ public final class CommandShopSessions {
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
-        UUID sessionUuid = UUID.randomUUID();
-        CobbleDollarsShopHolder holder = createSessionHolder(sessionUuid, runtimeShop);
 
-        PlayerExtensionKt.openShop(player, holder);
+        PlayerExtensionKt.openShop(player);
         if (!(player.containerMenu instanceof ShopMenu shopMenu)) {
             throw new IllegalStateException("CobbleDollars did not open a shop menu for this player.");
         }
 
+        UUID sessionUuid = UUID.randomUUID();
         CommandShopSession session = new CommandShopSession(shop.id(), sessionUuid, shopMenu.containerId);
-        shopMenu.setCobbleMerchant(holder);
-        shopMenu.setHasMerchant(false);
-        shopMenu.setShop(runtimeShop);
-        updateSessionRefreshState(server, player, session, shop);
         ACTIVE_SESSIONS.put(player.getUUID(), session);
+        sendFullSync(player, session, runtimeShop);
+        updateSessionRefreshState(server, player, session, shop);
     }
 
     public static boolean openCustomBank(ServerPlayer player, UUID merchantUuid) {

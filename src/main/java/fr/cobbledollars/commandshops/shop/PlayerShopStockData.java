@@ -127,9 +127,6 @@ public final class PlayerShopStockData extends SavedData {
         int nextStock = Math.max(0, state.stock() - amount);
         if (nextStock != state.stock()) {
             state.setStock(nextStock);
-            if (offer.restockRule() instanceof RestockRule.IntervalRestockRule && nextStock < offer.stock()) {
-                state.setIntervalAnchorMillis(nowMillis);
-            }
             if (isRedundantState(state, offer)) {
                 removeState(playerUuid, shop, offer);
             }
