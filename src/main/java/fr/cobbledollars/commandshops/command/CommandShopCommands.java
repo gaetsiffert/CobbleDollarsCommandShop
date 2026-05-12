@@ -102,11 +102,7 @@ public final class CommandShopCommands {
     private static int openForTargets(CommandSourceStack source, String shopId, Collection<ServerPlayer> targets) throws CommandSyntaxException {
         ShopDefinition shop = loadShop(shopId);
         for (ServerPlayer target : targets) {
-            try {
-                CommandShopSessions.openShop(target, shop);
-            } catch (IllegalStateException exception) {
-                throw SHOP_ERROR.create(exception.getMessage());
-            }
+            CommandShopSessions.queueOpenShop(target, shop);
         }
 
         source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.open.success", shop.id(), targets.size()), false);

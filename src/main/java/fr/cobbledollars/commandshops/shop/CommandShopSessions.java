@@ -38,6 +38,7 @@ import net.minecraft.world.item.ItemStack;
 
 public final class CommandShopSessions {
     private static final Map<UUID, CommandShopSession> ACTIVE_SESSIONS = new HashMap<>();
+    private static final Map<UUID, PendingShopOpen> PENDING_SHOP_OPENS = new HashMap<>();
 
     private CommandShopSessions() {
     }
@@ -57,18 +58,29 @@ public final class CommandShopSessions {
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
+        UUID sessionUuid = UUID.randomUUID();
+        CobbleDollarsShopHolder sessionHolder = createSessionHolder(sessionUuid, runtimeShop);
+        sessionHolder.getTradingPlayers().add(player);
 
-        PlayerExtensionKt.openShop(player);
+        PlayerExtensionKt.openShop(player, sessionHolder);
         if (!(player.containerMenu instanceof ShopMenu shopMenu)) {
             throw new IllegalStateException("CobbleDollars did not open a shop menu for this player.");
         }
 
-        UUID sessionUuid = UUID.randomUUID();
         CommandShopSession session = new CommandShopSession(shop.id(), sessionUuid, shopMenu.containerId);
         ACTIVE_SESSIONS.put(player.getUUID(), session);
         sendFullSync(player, session, runtimeShop);
         syncClientShopUiState(player, session, shop, runtimeShop, stockData, nowMillis);
         updateSessionRefreshState(server, player, session, shop);
+    }
+
+    public static void queueOpenShop(ServerPlayer player, ShopDefinition shop) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            throw new IllegalStateException("Player is not attached to a server.");
+        }
+
+        PENDING_SHOP_OPENS.put(player.getUUID(), new PendingShopOpen(shop.id(), server.getTickCount() + 2L, 5));
     }
 
     public static boolean openCustomBank(ServerPlayer player, UUID merchantUuid) {
@@ -117,10 +129,6 @@ public final class CommandShopSessions {
     }
 
     public static boolean handleCustomBuy(BuyPacket packet, MinecraftServer server, ServerPlayer player) {
-        if (packet.getHasMerchant()) {
-            return false;
-        }
-
         CommandShopSession session = ACTIVE_SESSIONS.get(player.getUUID());
         if (session == null) {
             return false;
@@ -257,6 +265,8 @@ public final class CommandShopSessions {
     }
 
     public static void tick(MinecraftServer server) {
+        processPendingShopOpens(server);
+
         long currentTick = server.getTickCount();
         Iterator<Map.Entry<UUID, CommandShopSession>> iterator = ACTIVE_SESSIONS.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -276,10 +286,12 @@ public final class CommandShopSessions {
 
     public static void cleanupPlayer(MinecraftServer server, UUID playerUuid) {
         ACTIVE_SESSIONS.remove(playerUuid);
+        PENDING_SHOP_OPENS.remove(playerUuid);
     }
 
     public static void cleanupAll(MinecraftServer server) {
         ACTIVE_SESSIONS.clear();
+        PENDING_SHOP_OPENS.clear();
     }
 
     public static boolean handleCustomSell(MinecraftServer server, ServerPlayer player) {
@@ -593,6 +605,65 @@ public final class CommandShopSessions {
         holder.setShop(runtimeShop);
         holder.setTradingPlayers(new HashSet<>());
         return holder;
+    }
+
+    private static void processPendingShopOpens(MinecraftServer server) {
+        if (PENDING_SHOP_OPENS.isEmpty()) {
+            return;
+        }
+
+        long currentTick = server.getTickCount();
+        ArrayList<Map.Entry<UUID, PendingShopOpen>> readyEntries = new ArrayList<>();
+        Iterator<Map.Entry<UUID, PendingShopOpen>> iterator = PENDING_SHOP_OPENS.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, PendingShopOpen> entry = iterator.next();
+            if (entry.getValue().executeAtTick() > currentTick) {
+                continue;
+            }
+            iterator.remove();
+            readyEntries.add(entry);
+        }
+
+        for (Map.Entry<UUID, PendingShopOpen> entry : readyEntries) {
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player == null) {
+                continue;
+            }
+
+            PendingShopOpen pendingOpen = entry.getValue();
+            ShopDefinition shop = ShopRegistry.getShop(pendingOpen.shopId());
+            if (shop == null) {
+                player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", pendingOpen.shopId()));
+                continue;
+            }
+
+            try {
+                openShop(player, shop);
+            } catch (IllegalStateException exception) {
+                if (shouldRetryQueuedOpen(exception) && pendingOpen.retriesRemaining() > 0) {
+                    PENDING_SHOP_OPENS.put(player.getUUID(), pendingOpen.retryAt(currentTick + 1L));
+                    continue;
+                }
+
+                CobbleDollarsCommandShopsMod.LOGGER.warn(
+                        "Failed to open queued shop '{}' for {}: {}",
+                        pendingOpen.shopId(),
+                        player.getGameProfile().getName(),
+                        exception.getMessage()
+                );
+            }
+        }
+    }
+
+    private static boolean shouldRetryQueuedOpen(IllegalStateException exception) {
+        String message = exception.getMessage();
+        return message != null && message.contains("did not open a shop menu");
+    }
+
+    private record PendingShopOpen(String shopId, long executeAtTick, int retriesRemaining) {
+        private PendingShopOpen retryAt(long nextTick) {
+            return new PendingShopOpen(shopId, nextTick, retriesRemaining - 1);
+        }
     }
 
     private static final class CommandShopSession {
