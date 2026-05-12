@@ -9,6 +9,9 @@
     "OpenShopHandlerMixin",
     "SellHandlerMixin"
   ],
+  "client": [
+    "OfferTooltipMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
