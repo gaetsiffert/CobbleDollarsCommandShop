@@ -28,6 +28,17 @@ sourceSets.main.resources {
 
 repositories {
     // Add here additional repositories if required by some of the dependencies below.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -140,7 +151,13 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 
-    compileOnly fileTree(dir: 'run/mods', include: ['CobbleDollars-*.jar', 'Cobblemon-*.jar'])
+    // Use pinned Modrinth version IDs so compile-time resolution does not depend on local run/mods content.
+    compileOnly "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
+    compileOnly "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
+    compileOnly "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
+    localRuntime "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
+    localRuntime "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
+    localRuntime "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
     compileOnly "org.spongepowered:mixin:0.8.5"
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
 }
