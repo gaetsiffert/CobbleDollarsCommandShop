@@ -37,6 +37,7 @@ public final class ConfigGuideFiles {
                   global_bank.json
                   shops/
                     general_store/
+                      bank.json
                       shop.json
                     blacksmith/
                       shop.json
@@ -97,7 +98,7 @@ public final class ConfigGuideFiles {
 
                 ### Shop Fields
 
-                - `deny_message`: optional message shown when the player cannot open the shop
+                - `deny_message`: optional raw text message shown when the player cannot open the shop
                 - `conditions`: optional conditions applied to the whole shop
                 - `categories`: required array
                 - `categories[].name`: name displayed in the CobbleDollars UI
@@ -307,13 +308,15 @@ public final class ConfigGuideFiles {
                 - a string resource id such as `"minecraft:entity.villager.no"`
                 - or an object with `id`, `volume`, and `pitch`
 
+                Built-in feedback text uses the player's language when the client supports this mod, or the normal Minecraft translation system for server-side messages. This project ships `en_us` and `fr_fr`.
+
                 ## Optional Client Layer
 
                 If the same jar is installed on the client, this mod adds a thin CobbleDollars UI layer without moving any gameplay authority to the client.
 
                 With the client layer present:
 
-                - shop feedback is rendered directly on top of the CobbleDollars screen instead of using chat fallback
+                - shop and bank feedback is rendered directly on top of the CobbleDollars screen instead of using chat fallback
                 - the selected offer can show the next restock amount and exact next restock time using server-provided timestamps
 
                 Without the client layer:
@@ -329,6 +332,7 @@ public final class ConfigGuideFiles {
                 - Config files are cached in memory.
                 - Use `/cdshops reload` after editing files.
                 - Custom shops only affect sessions opened through this addon.
+                - License terms are in the root `LICENSE` file and are bundled into the built jar.
                 """;
     }
 }

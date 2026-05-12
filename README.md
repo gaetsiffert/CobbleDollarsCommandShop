@@ -10,6 +10,7 @@ This mod adds command-driven CobbleDollars shops with:
 - hot config reload with `/cdshops reload`
 - configurable server-only player feedback through `feedback.json`
 - optional client-side UI enhancements when the same jar is installed on the client
+- built-in English and French localized feedback
 
 It does not replace CobbleDollars, replace CobbleDollars NPCs, or move gameplay authority to the client. It only takes over sessions opened through this addon.
 
@@ -37,6 +38,8 @@ The repo also ships example files under:
 The detailed format reference is in:
 
 `config/cobbledollarscommandshops/CONFIG_GUIDE.md`
+
+License terms are in the root `LICENSE` file and are also bundled into the built jar.
 
 ## Build
 
