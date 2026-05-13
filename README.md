@@ -57,7 +57,11 @@ config/cobbledollarscommandshops/
       bank.json
 ```
 
-The detailed format reference is generated at runtime in:
+The detailed format reference is available in the repository at:
+
+`CONFIG_GUIDE.md`
+
+The same guide is also generated at runtime in:
 
 `config/cobbledollarscommandshops/CONFIG_GUIDE.md`
 
