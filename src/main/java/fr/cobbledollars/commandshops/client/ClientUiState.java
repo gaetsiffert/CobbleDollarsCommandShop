@@ -4,12 +4,15 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
 import fr.harmex.cobbledollars.common.client.config.ClientShopConfig;
@@ -27,10 +30,14 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
+import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.tooltip.TooltipComponent;
 import net.neoforged.api.distmarker.Dist;
@@ -45,6 +52,7 @@ import org.lwjgl.glfw.GLFW;
 @EventBusSubscriber(modid = CobbleDollarsCommandShopsMod.MODID, value = Dist.CLIENT)
 public final class ClientUiState {
     private static final int BANK_SCREEN_WIDTH = 170;
+    private static final int BANK_SCREEN_HEIGHT = 204;
     private static final int TOAST_MAX_WIDTH = 220;
     private static final int HUD_MARGIN = 10;
     private static final int PANEL_MARGIN = 6;
@@ -65,6 +73,7 @@ public final class ClientUiState {
     private static final float POPUP_LAYER_Z = 4000.0F;
 
     private static SessionState currentShopState;
+    private static ClientBankState currentBankState;
     private static OverlayMessage overlayMessage;
     private static BankScreen trackedBankScreen;
     private static boolean acceptedItemsModalOpen;
@@ -90,8 +99,13 @@ public final class ClientUiState {
         currentShopState = new SessionState(payload.sessionUuid(), Map.copyOf(offersByKey));
     }
 
+    public static void acceptBankUiState(BankUiStatePayload payload) {
+        currentBankState = ClientBankState.fromPayload(payload);
+    }
+
     public static void clear() {
         currentShopState = null;
+        currentBankState = null;
         overlayMessage = null;
         trackedBankScreen = null;
         acceptedItemsModalOpen = false;
@@ -149,7 +163,7 @@ public final class ClientUiState {
             return;
         }
 
-        Offer offer = getClientBank().get(event.getItemStack());
+        Offer offer = getClientBankOffer(event.getItemStack());
         if (offer == null) {
             return;
         }
@@ -198,6 +212,7 @@ public final class ClientUiState {
             acceptedItemsSearchFocused = false;
             acceptedItemsSearchQuery = "";
             acceptedItemsPage = 0;
+            currentBankState = null;
             modalRenderHandledInPre = false;
         }
     }
@@ -354,6 +369,28 @@ public final class ClientUiState {
     }
 
     @SubscribeEvent
+    public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
+        if (!(event.getScreen() instanceof BankScreen) || !acceptedItemsModalOpen) {
+            return;
+        }
+
+        AcceptedItemsModalLayout layout = getAcceptedItemsModalLayout(Minecraft.getInstance());
+        int mouseX = (int) Math.round(event.getMouseX());
+        int mouseY = (int) Math.round(event.getMouseY());
+        if (!layout.panelRect().contains(mouseX, mouseY)) {
+            return;
+        }
+
+        double deltaY = event.getScrollDeltaY();
+        if (deltaY > 0.0D) {
+            changeAcceptedItemsPage(-1);
+        } else if (deltaY < 0.0D) {
+            changeAcceptedItemsPage(1);
+        }
+        event.setCanceled(true);
+    }
+
+    @SubscribeEvent
     public static void onKeyPressed(ScreenEvent.KeyPressed.Pre event) {
         if (!(event.getScreen() instanceof BankScreen) || !acceptedItemsModalOpen) {
             return;
@@ -385,6 +422,7 @@ public final class ClientUiState {
     private static void trackBankScreen(BankScreen bankScreen) {
         if (trackedBankScreen != bankScreen) {
             trackedBankScreen = bankScreen;
+            currentBankState = null;
             acceptedItemsModalOpen = false;
             acceptedItemsPage = 0;
             acceptedItemsSearchQuery = "";
@@ -462,10 +500,9 @@ public final class ClientUiState {
             return;
         }
 
-        Bank bank = getClientBank();
         for (Slot slot : menu.slots) {
             ItemStack stack = slot.getItem();
-            if (stack.isEmpty() || bank.get(stack) == null) {
+            if (stack.isEmpty() || getClientBankOffer(stack) == null) {
                 continue;
             }
 
@@ -575,13 +612,11 @@ public final class ClientUiState {
         String label = Component.translatable("cobbledollarscommandshops.ui.bank.accepted_button").getString();
         int width = Math.max(68, font.width(label) + 10);
         int height = 12;
-        int preferredX = screen.getX() + BANK_SCREEN_WIDTH + 6;
-        int preferredY = screen.getY() + 2;
-        if (preferredX + width <= minecraft.getWindow().getGuiScaledWidth() - PANEL_MARGIN) {
-            return new Rect(preferredX, preferredY, width, height);
-        }
-        int aboveY = Math.max(PANEL_MARGIN, screen.getY() - height - 4);
-        return new Rect(screen.getX() + BANK_SCREEN_WIDTH - width, aboveY, width, height);
+        int centeredX = screen.getX() + (BANK_SCREEN_WIDTH - width) / 2;
+        int x = Math.max(PANEL_MARGIN, Math.min(centeredX, minecraft.getWindow().getGuiScaledWidth() - PANEL_MARGIN - width));
+        int preferredY = screen.getY() + BANK_SCREEN_HEIGHT + 4;
+        int y = Math.min(preferredY, minecraft.getWindow().getGuiScaledHeight() - PANEL_MARGIN - height);
+        return new Rect(x, y, width, height);
     }
 
     private static AcceptedItemsModalLayout getAcceptedItemsModalLayout(Minecraft minecraft) {
@@ -616,12 +651,15 @@ public final class ClientUiState {
     }
 
     private static List<AcceptedItemEntry> getFilteredAcceptedItemEntries() {
-        Bank bank = getClientBank();
-        ArrayList<AcceptedItemEntry> entries = new ArrayList<>(bank.size());
-        for (Offer offer : bank) {
+        List<Offer> offers = getClientBankOffers();
+        ArrayList<AcceptedItemEntry> entries = new ArrayList<>(offers.size());
+        for (Offer offer : offers) {
             entries.add(new AcceptedItemEntry(offer, offer.getItem().getHoverName().getString()));
         }
-        entries.sort(Comparator.comparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER));
+        entries.sort(Comparator
+                .comparing(ClientUiState::getAcceptedItemModSortKey, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(ClientUiState::getAcceptedItemRegistrySortKey, String.CASE_INSENSITIVE_ORDER));
         String query = acceptedItemsSearchQuery.trim().toLowerCase();
         if (query.isEmpty()) {
             return entries;
@@ -675,9 +713,44 @@ public final class ClientUiState {
         acceptedItemsSearchBox.setFocused(acceptedItemsSearchFocused);
     }
 
+    private static void changeAcceptedItemsPage(int delta) {
+        int pageCount = getAcceptedItemsPageCount();
+        if (pageCount <= 1) {
+            acceptedItemsPage = 0;
+            return;
+        }
+        acceptedItemsPage = Math.max(0, Math.min(acceptedItemsPage + delta, pageCount - 1));
+    }
+
+    private static String getAcceptedItemModSortKey(AcceptedItemEntry entry) {
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(entry.offer().getItem().getItem());
+        return itemId.getNamespace();
+    }
+
+    private static String getAcceptedItemRegistrySortKey(AcceptedItemEntry entry) {
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(entry.offer().getItem().getItem());
+        return itemId.toString().toLowerCase(Locale.ROOT);
+    }
+
     private static Bank getClientBank() {
         Bank bank = ClientShopConfig.INSTANCE.getBank();
         return bank == null ? new Bank() : bank;
+    }
+
+    private static List<Offer> getClientBankOffers() {
+        ClientBankState bankState = currentBankState;
+        if (bankState != null) {
+            return bankState.offers();
+        }
+        return getClientBank();
+    }
+
+    private static Offer getClientBankOffer(ItemStack stack) {
+        ClientBankState bankState = currentBankState;
+        if (bankState != null) {
+            return bankState.get(stack);
+        }
+        return getClientBank().get(stack);
     }
 
     private static OverlayMessage getOverlayMessage(long nowMillis) {
@@ -790,6 +863,40 @@ public final class ClientUiState {
     }
 
     private record SessionState(UUID sessionUuid, Map<OfferKey, ShopUiStatePayload.OfferState> offersByKey) {
+    }
+
+    private record ClientBankState(Map<BankOfferKey, Offer> exactOffersByKey, Map<Item, Offer> genericOffersByItem, List<Offer> offers) {
+        private static ClientBankState fromPayload(BankUiStatePayload payload) {
+            HashMap<BankOfferKey, Offer> exactOffers = new HashMap<>();
+            for (BankUiStatePayload.Entry entry : payload.exactOffers()) {
+                exactOffers.put(new BankOfferKey(entry.stack().getItem(), entry.stack().getComponents()), new Offer(entry.stack().copy(), entry.price(), -1));
+            }
+
+            HashMap<Item, Offer> genericOffers = new HashMap<>();
+            for (BankUiStatePayload.Entry entry : payload.genericOffers()) {
+                genericOffers.put(entry.stack().getItem(), new Offer(entry.stack().copy(), entry.price(), -1));
+            }
+
+            LinkedHashMap<BankOfferKey, Offer> visibleOffers = new LinkedHashMap<>(exactOffers.size() + genericOffers.size());
+            for (Offer offer : exactOffers.values()) {
+                visibleOffers.put(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+            }
+            for (Offer offer : genericOffers.values()) {
+                visibleOffers.putIfAbsent(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+            }
+            return new ClientBankState(Map.copyOf(exactOffers), Map.copyOf(genericOffers), List.copyOf(visibleOffers.values()));
+        }
+
+        private Offer get(ItemStack stack) {
+            Offer offer = exactOffersByKey.get(new BankOfferKey(stack.getItem(), stack.getComponents()));
+            if (offer != null) {
+                return offer;
+            }
+            return genericOffersByItem.get(stack.getItem());
+        }
+    }
+
+    private record BankOfferKey(Item item, DataComponentMap components) {
     }
 
     private record OverlayMessage(Component message, int color, long expiresAtMillis) {

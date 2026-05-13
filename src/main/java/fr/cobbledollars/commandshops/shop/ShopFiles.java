@@ -21,8 +21,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.fml.loading.FMLPaths;
 
@@ -54,6 +52,8 @@ public final class ShopFiles {
         ensureShopExists("general_store", createGeneralStoreShop());
         ensureShopExists("blacksmith", createBlacksmithShop());
         ensureShopExists("explorer", createExplorerShop());
+        ensureShopJsonExists("syntax_showcase", createSyntaxShowcaseShopJson());
+        BankFiles.ensureLocalBankJsonExists("syntax_showcase", BankFiles.createSyntaxShowcaseBankJson());
     }
 
     public static ShopDefinition parseShopFile(String shopId, Path shopFile, HolderLookup.Provider provider) throws IOException {
@@ -130,7 +130,11 @@ public final class ShopFiles {
 
     private static ShopOfferDefinition parseOfferBody(JsonObject offerObject, String shopId, String categoryName, String offerId, HolderLookup.Provider provider) throws IOException {
         String context = "shop '" + shopId + "', category '" + categoryName + "', offer '" + offerId + "'";
-        ItemStack stack = ConfigParsing.readItemStack(offerObject, provider, context);
+        ItemMatchExpression match = ConfigParsing.readItemMatchExpression(offerObject, provider, context);
+        int count = ConfigParsing.readInt(offerObject, "count", 1, context);
+        if (count <= 0) {
+            throw new IOException("Field 'count' in " + context + " must be greater than 0.");
+        }
         BigInteger price = ConfigParsing.readBigInteger(offerObject, "price", context);
         if (price.signum() < 0) {
             throw new IOException("Field 'price' in " + context + " must be positive or zero.");
@@ -147,7 +151,7 @@ public final class ShopFiles {
         }
 
         ConditionSet conditions = ConditionSet.readOptional(offerObject, context);
-        return new ShopOfferDefinition(offerId, stack, price, stock, restockRule, conditions);
+        return new ShopOfferDefinition(offerId, match, count, price, stock, restockRule, conditions);
     }
 
     private static RestockRule readRestockRule(JsonObject object, String context) throws IOException {
@@ -210,17 +214,27 @@ public final class ShopFiles {
         writeShop(shopFile, shop);
     }
 
+    private static void ensureShopJsonExists(String shopId, String shopJson) throws IOException {
+        Path shopFolder = SHOP_DIRECTORY.resolve(shopId);
+        Files.createDirectories(shopFolder);
+        Path shopFile = resolveShopFile(shopFolder);
+        if (Files.exists(shopFile)) {
+            return;
+        }
+        Files.writeString(shopFile, shopJson);
+    }
+
     private static ShopDefinition createGeneralStoreShop() {
         List<ShopOfferDefinition> foodOffers = List.of(
-                new ShopOfferDefinition("bread_bundle", new ItemStack(Items.BREAD, 6), BigInteger.valueOf(24L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("cooked_beef", new ItemStack(Items.COOKED_BEEF, 8), BigInteger.valueOf(48L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("golden_apple", new ItemStack(Items.GOLDEN_APPLE, 1), BigInteger.valueOf(140L), 3,
+                new ShopOfferDefinition("bread_bundle", exactItemMatch(Items.BREAD, "minecraft:bread"), 6, BigInteger.valueOf(24L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("cooked_beef", exactItemMatch(Items.COOKED_BEEF, "minecraft:cooked_beef"), 8, BigInteger.valueOf(48L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("golden_apple", exactItemMatch(Items.GOLDEN_APPLE, "minecraft:golden_apple"), 1, BigInteger.valueOf(140L), 3,
                         new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
         );
         List<ShopOfferDefinition> utilityOffers = List.of(
-                new ShopOfferDefinition("torch_stack", new ItemStack(Items.TORCH, 32), BigInteger.valueOf(18L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("oak_logs", new ItemStack(Items.OAK_LOG, 16), BigInteger.valueOf(30L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("ender_pearl_pair", new ItemStack(Items.ENDER_PEARL, 2), BigInteger.valueOf(90L), 6,
+                new ShopOfferDefinition("torch_stack", exactItemMatch(Items.TORCH, "minecraft:torch"), 32, BigInteger.valueOf(18L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("oak_logs", exactItemMatch(Items.OAK_LOG, "minecraft:oak_log"), 16, BigInteger.valueOf(30L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("ender_pearl_pair", exactItemMatch(Items.ENDER_PEARL, "minecraft:ender_pearl"), 2, BigInteger.valueOf(90L), 6,
                         new RestockRule.IntervalRestockRule(1, 300L), ConditionSet.NONE)
         );
         List<ShopCategoryDefinition> categories = List.of(
@@ -232,13 +246,13 @@ public final class ShopFiles {
 
     private static ShopDefinition createBlacksmithShop() {
         List<ShopOfferDefinition> weaponOffers = List.of(
-                new ShopOfferDefinition("iron_sword", new ItemStack(Items.IRON_SWORD, 1), BigInteger.valueOf(90L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("crossbow", new ItemStack(Items.CROSSBOW, 1), BigInteger.valueOf(120L), 4,
+                new ShopOfferDefinition("iron_sword", exactItemMatch(Items.IRON_SWORD, "minecraft:iron_sword"), 1, BigInteger.valueOf(90L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("crossbow", exactItemMatch(Items.CROSSBOW, "minecraft:crossbow"), 1, BigInteger.valueOf(120L), 4,
                         new RestockRule.IntervalRestockRule(1, 900L), ConditionSet.NONE)
         );
         List<ShopOfferDefinition> toolOffers = List.of(
-                new ShopOfferDefinition("iron_pickaxe", new ItemStack(Items.IRON_PICKAXE, 1), BigInteger.valueOf(110L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("diamond_pickaxe", new ItemStack(Items.DIAMOND_PICKAXE, 1), BigInteger.valueOf(450L), 2,
+                new ShopOfferDefinition("iron_pickaxe", exactItemMatch(Items.IRON_PICKAXE, "minecraft:iron_pickaxe"), 1, BigInteger.valueOf(110L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("diamond_pickaxe", exactItemMatch(Items.DIAMOND_PICKAXE, "minecraft:diamond_pickaxe"), 1, BigInteger.valueOf(450L), 2,
                         new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
         );
         List<ShopCategoryDefinition> categories = List.of(
@@ -250,15 +264,15 @@ public final class ShopFiles {
 
     private static ShopDefinition createExplorerShop() {
         List<ShopOfferDefinition> travelOffers = List.of(
-                new ShopOfferDefinition("compass", new ItemStack(Items.COMPASS, 1), BigInteger.valueOf(60L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("map_bundle", new ItemStack(Items.MAP, 3), BigInteger.valueOf(45L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("boat", new ItemStack(Items.OAK_BOAT, 1), BigInteger.valueOf(35L), -1, null, ConditionSet.NONE)
+                new ShopOfferDefinition("compass", exactItemMatch(Items.COMPASS, "minecraft:compass"), 1, BigInteger.valueOf(60L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("map_bundle", exactItemMatch(Items.MAP, "minecraft:map"), 3, BigInteger.valueOf(45L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("boat", exactItemMatch(Items.OAK_BOAT, "minecraft:oak_boat"), 1, BigInteger.valueOf(35L), -1, null, ConditionSet.NONE)
         );
         List<ShopOfferDefinition> supplyOffers = List.of(
-                new ShopOfferDefinition("arrow_stack", new ItemStack(Items.ARROW, 32), BigInteger.valueOf(40L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("lead_pair", new ItemStack(Items.LEAD, 2), BigInteger.valueOf(70L), 5,
+                new ShopOfferDefinition("arrow_stack", exactItemMatch(Items.ARROW, "minecraft:arrow"), 32, BigInteger.valueOf(40L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("lead_pair", exactItemMatch(Items.LEAD, "minecraft:lead"), 2, BigInteger.valueOf(70L), 5,
                         new RestockRule.IntervalRestockRule(1, 600L), ConditionSet.NONE),
-                new ShopOfferDefinition("water_bucket", new ItemStack(Items.WATER_BUCKET, 1), BigInteger.valueOf(55L), -1, null, ConditionSet.NONE)
+                new ShopOfferDefinition("water_bucket", exactItemMatch(Items.WATER_BUCKET, "minecraft:water_bucket"), 1, BigInteger.valueOf(55L), -1, null, ConditionSet.NONE)
         );
         List<ShopCategoryDefinition> categories = List.of(
                 new ShopCategoryDefinition("Travel", travelOffers, ConditionSet.NONE),
@@ -272,21 +286,24 @@ public final class ShopFiles {
         if (shop.denyMessage() != null) {
             root.addProperty("deny_message", shop.denyMessage());
         }
+        ConditionSet.writeOptional(root, shop.conditions());
         JsonArray categoriesArray = new JsonArray();
         for (ShopCategoryDefinition category : shop.categories()) {
             JsonObject categoryObject = new JsonObject();
             categoryObject.addProperty("name", category.name());
+            ConditionSet.writeOptional(categoryObject, category.conditions());
             JsonArray offersArray = new JsonArray();
 
             for (ShopOfferDefinition offer : category.offers()) {
                 JsonObject offerObject = new JsonObject();
                 offerObject.addProperty("id", offer.id());
-                offerObject.addProperty("item", BuiltInRegistries.ITEM.getKey(offer.createItemStack().getItem()).toString());
-                offerObject.addProperty("count", offer.createItemStack().getCount());
+                ConfigParsing.writeMatchExpression(offerObject, offer.match());
+                offerObject.addProperty("count", offer.count());
                 offerObject.addProperty("price", offer.price());
                 if (offer.hasFiniteStock()) {
                     offerObject.addProperty("stock", offer.stock());
                 }
+                ConditionSet.writeOptional(offerObject, offer.conditions());
                 if (offer.restockRule() instanceof RestockRule.IntervalRestockRule intervalRule) {
                     JsonObject restockObject = new JsonObject();
                     restockObject.addProperty("type", intervalRule.type());
@@ -309,5 +326,160 @@ public final class ShopFiles {
         }
         root.add("categories", categoriesArray);
         return root;
+    }
+
+    private static ItemMatchExpression exactItemMatch(net.minecraft.world.item.Item item, String itemId) {
+        return ItemMatchExpression.include(new ItemMatchAtom.ExactItem(item, itemId));
+    }
+
+    private static String createSyntaxShowcaseShopJson() {
+        return """
+                {
+                  "deny_message": "This showcase is blocked for your current access profile.",
+                  "conditions": {
+                    "player_tags_none": ["syntax_showcase_banned"]
+                  },
+                  "categories": [
+                    {
+                      "name": "Fallback Pricing",
+                      "offers": [
+                        {
+                          "id": "all_logs",
+                          "match": {
+                            "include": [
+                              { "tag": "minecraft:logs" }
+                            ]
+                          },
+                          "count": 16,
+                          "price": 30
+                        },
+                        {
+                          "id": "oak_log_vip",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:oak_log" }
+                            ]
+                          },
+                          "count": 16,
+                          "price": 24,
+                          "conditions": {
+                            "player_tags_any": ["vip_shop"]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Exact Stack",
+                      "offers": [
+                        {
+                          "id": "syntax_ticket",
+                          "match": {
+                            "include": [
+                              { "stack": "minecraft:paper[custom_data={quest_id:\\\"syntax_ticket\\\"}]" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 250,
+                          "stock": 2,
+                          "restock": {
+                            "type": "interval",
+                            "amount": 1,
+                            "every_seconds": 300
+                          },
+                          "conditions": {
+                            "player_tags_any": ["quest_debug"]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Condition Matrix",
+                      "conditions": {
+                        "player_tags_all": ["syntax_showcase_access", "merchant_permit"]
+                      },
+                      "offers": [
+                        {
+                          "id": "dawn_compass",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:clock" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 40,
+                          "conditions": {
+                            "advancements_any": ["minecraft:story/mine_stone"],
+                            "dimensions_any": ["minecraft:overworld"],
+                            "time_ranges_any": [
+                              { "start_tick": 0, "end_tick": 2000 }
+                            ]
+                          }
+                        },
+                        {
+                          "id": "veteran_rations",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:golden_carrot" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 90,
+                          "conditions": {
+                            "advancements_all": [
+                              "minecraft:story/mine_diamond",
+                              "minecraft:story/enter_the_nether"
+                            ],
+                            "scores_all": [
+                              { "objective": "reputation", "min": 25 }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Mixed Include",
+                      "offers": [
+                        {
+                          "id": "scout_supplies",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:compass" },
+                              { "item": "minecraft:map" },
+                              { "item": "minecraft:spyglass" }
+                            ],
+                            "exclude": [
+                              { "item": "minecraft:map" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 60
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Mod Scoped",
+                      "conditions": {
+                        "player_tags_any": ["syntax_showcase_access"]
+                      },
+                      "offers": [
+                        {
+                          "id": "minecraft_misc",
+                          "match": {
+                            "include": [
+                              { "mod": "minecraft" }
+                            ],
+                            "exclude": [
+                              { "tag": "minecraft:logs" },
+                              { "tag": "minecraft:planks" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 2
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
     }
 }

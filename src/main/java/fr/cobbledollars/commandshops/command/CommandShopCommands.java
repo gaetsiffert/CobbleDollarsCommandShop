@@ -15,6 +15,7 @@ import fr.cobbledollars.commandshops.feedback.FeedbackFiles;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
+import fr.cobbledollars.commandshops.shop.ResolvedShopOffer;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopOfferDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
@@ -22,6 +23,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
@@ -186,11 +188,27 @@ public final class CommandShopCommands {
                 continue;
             }
 
-            if (appended) {
-                details.append(", ");
+            List<ResolvedShopOffer> resolvedOffers = offer.createResolvedOffers();
+            if (resolvedOffers.size() == 1) {
+                if (appended) {
+                    details.append(", ");
+                }
+                details.append(offer.id()).append("=").append(stockData.resolveStock(target.getUUID(), shop, resolvedOffers.get(0), nowMillis));
+                appended = true;
+                continue;
             }
-            details.append(offer.id()).append("=").append(stockData.resolveStock(target.getUUID(), shop, offer, nowMillis));
-            appended = true;
+
+            for (ResolvedShopOffer resolvedOffer : resolvedOffers) {
+                if (appended) {
+                    details.append(", ");
+                }
+                details.append(offer.id())
+                        .append("[")
+                        .append(BuiltInRegistries.ITEM.getKey(resolvedOffer.itemStack().getItem()))
+                        .append("]=")
+                        .append(stockData.resolveStock(target.getUUID(), shop, resolvedOffer, nowMillis));
+                appended = true;
+            }
         }
 
         if (!appended) {

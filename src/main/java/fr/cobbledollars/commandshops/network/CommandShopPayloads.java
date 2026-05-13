@@ -1,6 +1,7 @@
 package fr.cobbledollars.commandshops.network;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -21,6 +22,8 @@ public final class CommandShopPayloads {
         PayloadRegistrar registrar = event.registrar(NETWORK_VERSION).optional();
         registrar.playToClient(ClientOverlayMessagePayload.TYPE, ClientOverlayMessagePayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> dispatchOverlayMessage(payload)));
+        registrar.playToClient(BankUiStatePayload.TYPE, BankUiStatePayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> dispatchBankUiState(payload)));
         registrar.playToClient(ShopUiStatePayload.TYPE, ShopUiStatePayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> dispatchShopUiState(payload)));
     }
@@ -34,6 +37,12 @@ public final class CommandShopPayloads {
     private static void dispatchShopUiState(ShopUiStatePayload payload) {
         if (FMLEnvironment.dist.isClient()) {
             invokeClientHandler("acceptShopUiState", ShopUiStatePayload.class, payload);
+        }
+    }
+
+    private static void dispatchBankUiState(BankUiStatePayload payload) {
+        if (FMLEnvironment.dist.isClient()) {
+            invokeClientHandler("acceptBankUiState", BankUiStatePayload.class, payload);
         }
     }
 

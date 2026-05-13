@@ -2,6 +2,7 @@ package fr.cobbledollars.commandshops.shop;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,7 +11,10 @@ import java.util.UUID;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Category;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 public final class ShopDefinition {
     private final String id;
@@ -184,30 +188,117 @@ public final class ShopDefinition {
     }
 
     public Shop createRuntimeShop(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {
+        return createRuntimeData(stockData, player, nowMillis).shop();
+    }
+
+    public RuntimeShopData createRuntimeData(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {
         Shop runtimeShop = new Shop();
         if (!conditions.test(player)) {
-            return runtimeShop;
+            return new RuntimeShopData(runtimeShop, List.of());
         }
 
-        UUID playerUuid = player.getUUID();
+        ArrayList<SourceCategoryCandidates> categoryContexts = new ArrayList<>();
+        ArrayList<ResolvedShopCandidate> allCandidates = new ArrayList<>();
+        int sourceOrder = 0;
         for (ShopCategoryDefinition categoryDefinition : categories) {
             if (!categoryDefinition.conditions().test(player)) {
                 continue;
             }
 
-            ArrayList<Offer> runtimeOffers = new ArrayList<>(categoryDefinition.offers().size());
+            ArrayList<ResolvedShopCandidate> categoryCandidates = new ArrayList<>();
             for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
                 if (!offerDefinition.isVisibleTo(player)) {
                     continue;
                 }
-
-                int stock = stockData.resolveStock(playerUuid, this, offerDefinition, nowMillis);
-                runtimeOffers.add(offerDefinition.createRuntimeOffer(stock));
+                for (ResolvedShopOffer resolvedOffer : offerDefinition.createResolvedOffers()) {
+                    ResolvedShopCandidate candidate = new ResolvedShopCandidate(sourceOrder, resolvedOffer);
+                    categoryCandidates.add(candidate);
+                    allCandidates.add(candidate);
+                }
+                sourceOrder++;
             }
-            if (!runtimeOffers.isEmpty()) {
-                runtimeShop.add(new Category(categoryDefinition.name(), runtimeOffers));
+            categoryContexts.add(new SourceCategoryCandidates(categoryDefinition.name(), List.copyOf(categoryCandidates)));
+        }
+
+        HashMap<ShopDisplayKey, ResolvedShopCandidate> winners = new HashMap<>();
+        for (ResolvedShopCandidate candidate : allCandidates) {
+            winners.merge(displayKey(candidate.offer().itemStack()), candidate, ShopDefinition::selectBetterCandidate);
+        }
+
+        UUID playerUuid = player.getUUID();
+        ArrayList<RuntimeCategory> runtimeCategories = new ArrayList<>();
+        for (SourceCategoryCandidates categoryContext : categoryContexts) {
+            ArrayList<Offer> cobbleOffers = new ArrayList<>(categoryContext.candidates().size());
+            ArrayList<RuntimeShopOfferEntry> resolvedOffers = new ArrayList<>(categoryContext.candidates().size());
+            for (ResolvedShopCandidate candidate : categoryContext.candidates()) {
+                if (winners.get(displayKey(candidate.offer().itemStack())) != candidate) {
+                    continue;
+                }
+
+                int stock = stockData.resolveStock(playerUuid, this, candidate.offer(), nowMillis);
+                Offer runtimeOffer = candidate.offer().createRuntimeOffer(stock);
+                cobbleOffers.add(runtimeOffer);
+                resolvedOffers.add(new RuntimeShopOfferEntry(candidate.offer(), runtimeOffer));
+            }
+            if (!cobbleOffers.isEmpty()) {
+                runtimeShop.add(new Category(categoryContext.name(), cobbleOffers));
+                runtimeCategories.add(new RuntimeCategory(categoryContext.name(), List.copyOf(resolvedOffers)));
             }
         }
-        return runtimeShop;
+        return new RuntimeShopData(runtimeShop, List.copyOf(runtimeCategories));
+    }
+
+    private static ResolvedShopCandidate selectBetterCandidate(ResolvedShopCandidate current, ResolvedShopCandidate incoming) {
+        int currentPriority = current.offer().matchKind().priority();
+        int incomingPriority = incoming.offer().matchKind().priority();
+        if (incomingPriority > currentPriority) {
+            return incoming;
+        }
+        if (incomingPriority < currentPriority) {
+            return current;
+        }
+        return incoming.sourceOrder() < current.sourceOrder() ? incoming : current;
+    }
+
+    private static ShopDisplayKey displayKey(ItemStack stack) {
+        return new ShopDisplayKey(stack.getItem(), stack.getComponents());
+    }
+
+    private record SourceCategoryCandidates(String name, List<ResolvedShopCandidate> candidates) {
+    }
+
+    private record ResolvedShopCandidate(int sourceOrder, ResolvedShopOffer offer) {
+    }
+
+    private record ShopDisplayKey(Item item, DataComponentMap components) {
+    }
+
+    public record RuntimeShopData(Shop shop, List<RuntimeCategory> categories) {
+        public RuntimeShopOfferEntry getEntry(int categoryIndex, int offerIndex) {
+            if (categoryIndex < 0 || categoryIndex >= categories.size()) {
+                return null;
+            }
+            List<RuntimeShopOfferEntry> offers = categories.get(categoryIndex).offers();
+            if (offerIndex < 0 || offerIndex >= offers.size()) {
+                return null;
+            }
+            return offers.get(offerIndex);
+        }
+
+        public ResolvedShopOffer getResolvedOffer(int categoryIndex, int offerIndex) {
+            RuntimeShopOfferEntry entry = getEntry(categoryIndex, offerIndex);
+            return entry == null ? null : entry.resolvedOffer();
+        }
+
+        public Offer getRuntimeOffer(int categoryIndex, int offerIndex) {
+            RuntimeShopOfferEntry entry = getEntry(categoryIndex, offerIndex);
+            return entry == null ? null : entry.runtimeOffer();
+        }
+    }
+
+    public record RuntimeCategory(String name, List<RuntimeShopOfferEntry> offers) {
+    }
+
+    public record RuntimeShopOfferEntry(ResolvedShopOffer resolvedOffer, Offer runtimeOffer) {
     }
 }

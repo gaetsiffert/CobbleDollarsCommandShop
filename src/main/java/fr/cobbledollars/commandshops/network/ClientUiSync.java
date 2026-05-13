@@ -3,8 +3,10 @@ package fr.cobbledollars.commandshops.network;
 import java.util.List;
 import java.util.UUID;
 
+import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
+import fr.cobbledollars.commandshops.shop.BankDefinition;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -29,5 +31,19 @@ public final class ClientUiSync {
         }
 
         PacketDistributor.sendToPlayer(player, new ShopUiStatePayload(sessionUuid, offers));
+    }
+
+    public static void sendBankUiState(ServerPlayer player, BankDefinition.RuntimeBankData runtimeBankData) {
+        if (!NetworkRegistry.hasChannel(player.connection, BankUiStatePayload.TYPE.id())) {
+            return;
+        }
+
+        PacketDistributor.sendToPlayer(
+                player,
+                BankUiStatePayload.fromOffers(
+                        List.copyOf(runtimeBankData.exactOffersByKey().values()),
+                        List.copyOf(runtimeBankData.genericOffersByItem().values())
+                )
+        );
     }
 }

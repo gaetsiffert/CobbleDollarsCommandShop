@@ -3,7 +3,9 @@ package fr.cobbledollars.commandshops.shop;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
@@ -53,8 +55,8 @@ public final class BankDefinition {
             return emptyData();
         }
 
-        ArrayList<Offer> runtimeOffers = new ArrayList<>();
-        HashMap<BankLookupKey, Offer> offersByKey = new HashMap<>();
+        ArrayList<BankOfferCandidate> candidates = new ArrayList<>();
+        int sourceOrder = 0;
         for (BankCategoryDefinition category : categories) {
             if (!category.conditions().test(player)) {
                 continue;
@@ -63,12 +65,49 @@ public final class BankDefinition {
                 if (!offer.isVisibleTo(player)) {
                     continue;
                 }
-                Offer runtimeOffer = offer.createRuntimeOffer();
-                runtimeOffers.add(runtimeOffer);
-                offersByKey.putIfAbsent(BankLookupKey.from(runtimeOffer.getItem()), runtimeOffer);
+                for (ItemMatchExpression.ResolvedMatch resolvedMatch : offer.match().resolveMatches(1)) {
+                    candidates.add(new BankOfferCandidate(
+                            sourceOrder,
+                            resolvedMatch.kind(),
+                            new Offer(resolvedMatch.stack().copy(), offer.price(), -1)
+                    ));
+                }
+                sourceOrder++;
             }
         }
-        return new RuntimeBankData(new Bank(runtimeOffers), Map.copyOf(offersByKey));
+
+        HashMap<BankLookupKey, BankOfferCandidate> exactCandidates = new HashMap<>();
+        HashMap<Item, BankOfferCandidate> genericCandidates = new HashMap<>();
+        for (BankOfferCandidate candidate : candidates) {
+            if (candidate.kind() == ItemMatchAtom.Kind.STACK) {
+                exactCandidates.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+                continue;
+            }
+            genericCandidates.merge(candidate.offer().getItem().getItem(), candidate, BankDefinition::selectBetterCandidate);
+        }
+
+        LinkedHashMap<BankLookupKey, BankOfferCandidate> displayWinners = new LinkedHashMap<>();
+        for (BankOfferCandidate candidate : candidates) {
+            displayWinners.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+        }
+
+        ArrayList<Offer> runtimeOffers = new ArrayList<>();
+        IdentityHashMap<Offer, Boolean> includedOffers = new IdentityHashMap<>();
+        for (BankOfferCandidate candidate : displayWinners.values()) {
+            if (includedOffers.put(candidate.offer(), Boolean.TRUE) == null) {
+                runtimeOffers.add(candidate.offer());
+            }
+        }
+
+        HashMap<BankLookupKey, Offer> exactOffersByKey = new HashMap<>();
+        for (Map.Entry<BankLookupKey, BankOfferCandidate> entry : exactCandidates.entrySet()) {
+            exactOffersByKey.put(entry.getKey(), entry.getValue().offer());
+        }
+        HashMap<Item, Offer> genericOffersByItem = new HashMap<>();
+        for (Map.Entry<Item, BankOfferCandidate> entry : genericCandidates.entrySet()) {
+            genericOffersByItem.put(entry.getKey(), entry.getValue().offer());
+        }
+        return new RuntimeBankData(new Bank(runtimeOffers), Map.copyOf(exactOffersByKey), Map.copyOf(genericOffersByItem));
     }
 
     public static Bank emptyBank() {
@@ -96,7 +135,7 @@ public final class BankDefinition {
     }
 
     public static RuntimeBankData emptyData() {
-        return new RuntimeBankData(emptyBank(), Map.of());
+        return new RuntimeBankData(emptyBank(), Map.of(), Map.of());
     }
 
     private static List<ConditionSet> collectConditions(ConditionSet bankConditions, List<BankCategoryDefinition> categories) {
@@ -123,9 +162,26 @@ public final class BankDefinition {
         }
     }
 
-    public record RuntimeBankData(Bank bank, Map<BankLookupKey, Offer> offersByKey) {
+    private static BankOfferCandidate selectBetterCandidate(BankOfferCandidate current, BankOfferCandidate incoming) {
+        if (incoming.kind().priority() > current.kind().priority()) {
+            return incoming;
+        }
+        if (incoming.kind().priority() < current.kind().priority()) {
+            return current;
+        }
+        return incoming.sourceOrder() < current.sourceOrder() ? incoming : current;
+    }
+
+    private record BankOfferCandidate(int sourceOrder, ItemMatchAtom.Kind kind, Offer offer) {
+    }
+
+    public record RuntimeBankData(Bank bank, Map<BankLookupKey, Offer> exactOffersByKey, Map<Item, Offer> genericOffersByItem) {
         public Offer get(ItemStack stack) {
-            return offersByKey.get(BankLookupKey.from(stack));
+            Offer offer = exactOffersByKey.get(BankLookupKey.from(stack));
+            if (offer != null) {
+                return offer;
+            }
+            return genericOffersByItem.get(stack.getItem());
         }
     }
 }

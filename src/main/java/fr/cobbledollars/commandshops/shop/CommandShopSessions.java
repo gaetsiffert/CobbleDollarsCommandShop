@@ -57,7 +57,8 @@ public final class CommandShopSessions {
 
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
+        ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
+        Shop runtimeShop = runtimeData.shop();
         UUID sessionUuid = UUID.randomUUID();
         CobbleDollarsShopHolder sessionHolder = createSessionHolder(sessionUuid, runtimeShop);
         sessionHolder.getTradingPlayers().add(player);
@@ -70,7 +71,7 @@ public final class CommandShopSessions {
         CommandShopSession session = new CommandShopSession(shop.id(), sessionUuid, shopMenu.containerId);
         ACTIVE_SESSIONS.put(player.getUUID(), session);
         sendFullSync(player, session, runtimeShop);
-        syncClientShopUiState(player, session, shop, runtimeShop, stockData, nowMillis);
+        syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
         updateSessionRefreshState(server, player, session, shop);
     }
 
@@ -101,9 +102,10 @@ public final class CommandShopSessions {
 
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
+        ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
+        Shop runtimeShop = runtimeData.shop();
         PlayerExtensionKt.openBank(player, createSessionHolder(session.sessionUuid(), runtimeShop));
-        syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player).bank());
+        syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
         updateSessionRefreshState(server, player, session, shop);
         return true;
     }
@@ -153,22 +155,23 @@ public final class CommandShopSessions {
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         long nowMillis = System.currentTimeMillis();
-        Shop currentRuntimeShop = shop.createRuntimeShop(stockData, player, nowMillis);
+        ShopDefinition.RuntimeShopData currentRuntimeData = shop.createRuntimeData(stockData, player, nowMillis);
+        Shop currentRuntimeShop = currentRuntimeData.shop();
         refreshSessionShop(player, session, currentRuntimeShop);
-        syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
+        syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
 
-        ShopOfferDefinition offerDefinition = shop.getVisibleOffer(player, packet.getCategoryIndex(), packet.getOfferIndex());
+        ResolvedShopOffer offerDefinition = currentRuntimeData.getResolvedOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (offerDefinition == null) {
             sendFullSync(player, session, currentRuntimeShop);
-            syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
+            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_UNAVAILABLE);
             return true;
         }
 
-        Offer expectedOffer = getRuntimeOffer(currentRuntimeShop, packet.getCategoryIndex(), packet.getOfferIndex());
+        Offer expectedOffer = currentRuntimeData.getRuntimeOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (expectedOffer == null || !expectedOffer.equalsWithoutStock(packet.getOffer())) {
             sendFullSync(player, session, currentRuntimeShop);
-            syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
+            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_CHANGED);
             return true;
         }
@@ -189,7 +192,7 @@ public final class CommandShopSessions {
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
             sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), 0);
-            syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
+            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
@@ -221,7 +224,7 @@ public final class CommandShopSessions {
             expectedOffer.setStock(updatedStock);
             sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), updatedStock);
         }
-        syncClientShopUiState(player, session, shop, currentRuntimeShop, stockData, nowMillis);
+        syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
         ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
         updateSessionRefreshState(server, player, session, shop);
         return true;
@@ -240,15 +243,17 @@ public final class CommandShopSessions {
         }
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
-        Shop runtimeShop = shop.createRuntimeShop(stockData, player, System.currentTimeMillis());
+        long nowMillis = System.currentTimeMillis();
+        ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
+        Shop runtimeShop = runtimeData.shop();
         if (isViewingSessionShop(player, session)) {
             refreshSessionShop(player, session, runtimeShop);
-            syncClientShopUiState(player, session, shop, runtimeShop, stockData, System.currentTimeMillis());
+            syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
             updateSessionRefreshState(server, player, session, shop);
             return;
         }
         if (isViewingSessionBank(player, session)) {
-            syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player).bank());
+            syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
             updateSessionRefreshState(server, player, session, shop);
         }
     }
@@ -500,9 +505,10 @@ public final class CommandShopSessions {
         new UpdateStockPacket(categoryIndex, offerIndex, stock, session.sessionUuid()).sendToPlayer(player);
     }
 
-    private static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop, Bank runtimeBank) {
+    private static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop, BankDefinition.RuntimeBankData runtimeBankData) {
         try {
-            new SyncShopConfigPacket(runtimeShop, runtimeBank).sendToPlayer(player);
+            new SyncShopConfigPacket(runtimeShop, runtimeBankData.bank()).sendToPlayer(player);
+            ClientUiSync.sendBankUiState(player, runtimeBankData);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sync custom bank config for {}", player.getGameProfile().getName(), exception);
             player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.bank_config_load_failed", exception.getMessage()));
@@ -512,44 +518,34 @@ public final class CommandShopSessions {
     private static void syncClientShopUiState(
             ServerPlayer player,
             CommandShopSession session,
-            ShopDefinition shop,
-            Shop runtimeShop,
+            ShopDefinition.RuntimeShopData runtimeData,
             PlayerShopStockData stockData,
             long nowMillis
     ) {
-        if (runtimeShop == null) {
+        if (runtimeData == null) {
             return;
         }
 
         ArrayList<ShopUiStatePayload.OfferState> offers = new ArrayList<>();
-        int visibleCategoryIndex = 0;
-        for (ShopCategoryDefinition categoryDefinition : shop.categories()) {
-            if (!categoryDefinition.conditions().test(player)) {
-                continue;
-            }
+        ShopDefinition shop = ShopRegistry.getShop(session.shopId());
+        if (shop == null) {
+            return;
+        }
 
-            int visibleOfferIndex = 0;
-            for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
-                if (!offerDefinition.isVisibleTo(player)) {
-                    continue;
-                }
-
-                Offer runtimeOffer = getRuntimeOffer(runtimeShop, visibleCategoryIndex, visibleOfferIndex);
-                int stock = runtimeOffer == null ? -1 : runtimeOffer.getStock();
-                PlayerShopStockData.RestockPreview preview = stockData.previewNextRestock(player.getUUID(), shop, offerDefinition, nowMillis);
+        for (int visibleCategoryIndex = 0; visibleCategoryIndex < runtimeData.categories().size(); visibleCategoryIndex++) {
+            ShopDefinition.RuntimeCategory category = runtimeData.categories().get(visibleCategoryIndex);
+            for (int visibleOfferIndex = 0; visibleOfferIndex < category.offers().size(); visibleOfferIndex++) {
+                ShopDefinition.RuntimeShopOfferEntry entry = category.offers().get(visibleOfferIndex);
+                Offer runtimeOffer = entry.runtimeOffer();
+                PlayerShopStockData.RestockPreview preview = stockData.previewNextRestock(player.getUUID(), shop, entry.resolvedOffer(), nowMillis);
                 offers.add(new ShopUiStatePayload.OfferState(
                         visibleCategoryIndex,
                         visibleOfferIndex,
-                        stock,
+                        runtimeOffer.getStock(),
                         preview.hasNextRestock() ? preview.nextRestockAtMillis() : -1L,
                         preview.nextRestockAmount(),
                         resolveRestockZoneId(preview)
                 ));
-                visibleOfferIndex++;
-            }
-
-            if (visibleOfferIndex > 0) {
-                visibleCategoryIndex++;
             }
         }
 

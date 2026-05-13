@@ -26,7 +26,9 @@ public final class ConfigGuideFiles {
         return """
                 # CobbleDollars Command Shops Configuration Guide
 
-                This file explains the full configuration format used by the mod.
+                This guide documents the current configuration format.
+                The format is centered around `match.include` / `match.exclude`.
+                Older examples that put `item`, `stack`, or `tag` directly on an offer are obsolete.
 
                 ## Directory Layout
 
@@ -37,16 +39,19 @@ public final class ConfigGuideFiles {
                   global_bank.json
                   shops/
                     general_store/
-                      bank.json
                       shop.json
                     blacksmith/
                       shop.json
                     explorer/
                       shop.json
+                    syntax_showcase/
+                      bank.json
+                      shop.json
                 ```
 
                 `global_bank.json` is the fallback bank for every custom shop.
                 If `shops/<shop_id>/bank.json` exists, that file is used instead of the global bank for that shop.
+                `syntax_showcase` is generated as a living example of every supported matching mechanic.
 
                 ## Commands
 
@@ -62,32 +67,39 @@ public final class ConfigGuideFiles {
                 ## Shop File
 
                 Shop ids come from the folder name, not from JSON.
-                Example: `config/cobbledollarscommandshops/shops/blacksmith/shop.json`
+                Example: `config/cobbledollarscommandshops/shops/syntax_showcase/shop.json`
 
                 ```json
                 {
-                  "deny_message": "You must unlock this shop first.",
+                  "deny_message": "This showcase is blocked for your current access profile.",
                   "conditions": {
-                    "player_tags_none": ["shop_banned"]
+                    "player_tags_none": ["syntax_showcase_banned"]
                   },
                   "categories": [
                     {
-                      "name": "Weapons",
+                      "name": "Fallback Pricing",
                       "offers": [
                         {
-                          "id": "iron_sword",
-                          "item": "minecraft:iron_sword",
-                          "count": 1,
-                          "price": 90
+                          "id": "all_logs",
+                          "match": {
+                            "include": [
+                              { "tag": "minecraft:logs" }
+                            ]
+                          },
+                          "count": 16,
+                          "price": 30
                         },
                         {
-                          "id": "quest_blade",
-                          "stack": "minecraft:diamond_sword[custom_name='{\\"text\\":\\"Quest Blade\\"}',custom_data={quest_id:\\"blade_alpha\\"}]",
-                          "count": 1,
-                          "price": 600,
-                          "stock": 1,
+                          "id": "oak_log_vip",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:oak_log" }
+                            ]
+                          },
+                          "count": 16,
+                          "price": 24,
                           "conditions": {
-                            "advancements_any": ["minecraft:story/mine_diamond"]
+                            "player_tags_any": ["vip_shop"]
                           }
                         }
                       ]
@@ -105,28 +117,29 @@ public final class ConfigGuideFiles {
                 - `categories[].conditions`: optional conditions applied to the whole category
                 - `categories[].offers`: required array
                 - `offers[].id`: unique stable id used for persistent stock
-                - `offers[].item`: simple item id format
-                - `offers[].stack`: exact stack format with Minecraft data components
+                - `offers[].match`: required match block
                 - `offers[].count`: amount inside one offer purchase, default `1`
                 - `offers[].price`: CobbleDollars price
                 - `offers[].stock`: maximum stock, omit or use `-1` for unlimited
                 - `offers[].restock`: optional restock rule
                 - `offers[].conditions`: optional conditions for a single offer
 
-                Exactly one of `item` or `stack` must be present for each offer.
-
                 The CobbleDollars amount selector buys multiple copies of the offer.  
                 Example: if an offer uses `count: 32` for arrows and the player buys amount `2`, they receive `64` arrows.
 
                 ## Bank File
 
-                A bank can be flat:
+                A bank can still be flat:
 
                 ```json
                 {
                   "offers": [
                     {
-                      "item": "minecraft:diamond",
+                      "match": {
+                        "include": [
+                          { "item": "minecraft:diamond" }
+                        ]
+                      },
                       "price": 75
                     }
                   ]
@@ -145,11 +158,19 @@ public final class ConfigGuideFiles {
                       "name": "Ores",
                       "offers": [
                         {
-                          "item": "minecraft:iron_ingot",
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:iron_ingot" }
+                            ]
+                          },
                           "price": 8
                         },
                         {
-                          "stack": "minecraft:paper[custom_data={quest_id:\\"delivery_alpha\\"}]",
+                          "match": {
+                            "include": [
+                              { "stack": "minecraft:paper[custom_data={quest_id:\\\"delivery_alpha\\\"}]" }
+                            ]
+                          },
                           "price": 250
                         }
                       ]
@@ -165,12 +186,150 @@ public final class ConfigGuideFiles {
                 - `categories`: optional category list instead of `offers`
                 - `categories[].name`: config-only label for organization
                 - `categories[].conditions`: optional conditions for the whole category
-                - `offers[].item` or `offers[].stack`: item accepted by the bank
+                - `offers[].match`: required match block
                 - `offers[].price`: unit value paid to the player
                 - `offers[].conditions`: optional conditions for a single bank entry
 
                 Bank categories help organize large files, but CobbleDollars still receives a flat runtime bank.
                 Bank offers do not support a `count` field.
+
+                ## Match Syntax
+
+                Every shop offer and bank entry must define:
+
+                ```json
+                "match": {
+                  "include": [
+                    { "item": "minecraft:diamond" }
+                  ],
+                  "exclude": [
+                    { "item": "minecraft:coal" }
+                  ]
+                }
+                ```
+
+                `include` is required and must contain at least one entry.  
+                `exclude` is optional and can contain zero or more entries.
+
+                Each entry inside `include` or `exclude` must define exactly one of:
+
+                - `item`
+                - `stack`
+                - `tag`
+                - `mod`
+
+                Examples:
+
+                ```json
+                { "item": "minecraft:oak_log" }
+                { "stack": "minecraft:paper[custom_data={quest_id:\\\"syntax_ticket\\\"}]" }
+                { "tag": "minecraft:logs" }
+                { "mod": "minecraft" }
+                ```
+
+                `item`, `tag`, `mod`, `include`, and `exclude` all accept multiple entries.
+
+                Example with multiple includes and excludes:
+
+                ```json
+                {
+                  "match": {
+                    "include": [
+                      { "item": "minecraft:compass" },
+                      { "item": "minecraft:map" },
+                      { "item": "minecraft:spyglass" }
+                    ],
+                    "exclude": [
+                      { "item": "minecraft:map" }
+                    ]
+                  }
+                }
+                ```
+
+                ## Matching Priority
+
+                When several visible rules target the same concrete item, the mod resolves them with this priority:
+
+                1. `stack`
+                2. `item`
+                3. `tag`
+                4. `mod`
+
+                If two visible rules have the same priority, the first declared rule wins.
+
+                Example:
+
+                ```json
+                [
+                  {
+                    "match": {
+                      "include": [
+                        { "tag": "minecraft:logs" }
+                      ]
+                    },
+                    "price": 2
+                  },
+                  {
+                    "match": {
+                      "include": [
+                        { "item": "minecraft:oak_log" }
+                      ]
+                    },
+                    "price": 5
+                  }
+                ]
+                ```
+
+                Here `oak_log` takes the explicit `item` rule at `5`, while the other logs stay at `2`.
+
+                ## Fallback vs Strict Override
+
+                **Fallback override**: do not exclude the specific item from the broad rule.
+
+                ```json
+                {
+                  "match": {
+                    "include": [
+                      { "tag": "minecraft:logs" }
+                    ]
+                  },
+                  "price": 2
+                }
+                ```
+
+                ```json
+                {
+                  "match": {
+                    "include": [
+                      { "item": "minecraft:oak_log" }
+                    ]
+                  },
+                  "price": 5,
+                  "conditions": {
+                    "player_tags_any": ["vip_shop"]
+                  }
+                }
+                ```
+
+                If `vip_shop` is missing, `oak_log` falls back to the broad `tag` rule.
+
+                **Strict override**: explicitly exclude the specific item from the broad rule.
+
+                ```json
+                {
+                  "match": {
+                    "include": [
+                      { "tag": "minecraft:logs" }
+                    ],
+                    "exclude": [
+                      { "item": "minecraft:oak_log" }
+                    ]
+                  },
+                  "price": 2
+                }
+                ```
+
+                In that case, `oak_log` only exists if another rule reintroduces it.
 
                 ## Conditions
 
@@ -206,6 +365,9 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
+
+                Conditions are evaluated before priority resolution.  
+                A more specific rule only wins if its own conditions pass.
 
                 ### Time Range Fields
 
@@ -261,6 +423,28 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
+
+                ## Generated Examples
+
+                By default the mod generates:
+
+                - practical starter shops: `general_store`, `blacksmith`, `explorer`
+                - a practical fallback bank: `global_bank.json`
+                - a dedicated showcase shop with a local bank: `shops/syntax_showcase/`
+
+                `syntax_showcase` is where you can find examples of:
+
+                - `item`
+                - `stack`
+                - `tag`
+                - `mod`
+                - multiple `include`
+                - multiple `exclude`
+                - fallback override
+                - strict override
+                - every condition type: `player_tags_all`, `player_tags_any`, `player_tags_none`, `advancements_all`, `advancements_any`, `dimensions_any`, `time_ranges_any`, `scores_all`
+                - shop / category / offer conditions
+                - local bank override
 
                 ## Feedback Configuration
 
@@ -332,6 +516,9 @@ public final class ConfigGuideFiles {
                 - Config files are cached in memory.
                 - Use `/cdshops reload` after editing files.
                 - Custom shops only affect sessions opened through this addon.
+                - Exact `stack` matching includes data components.
+                - `mod` matches item registry namespaces.
+                - `match.exclude` only removes items from the current rule. A later rule can reintroduce them.
                 - License terms are in the root `LICENSE` file and are bundled into the built jar.
                 """;
     }

@@ -108,6 +108,38 @@ public final class ConditionSet {
         return hasTimeConditions;
     }
 
+    public List<String> playerTagsAll() {
+        return playerTagsAll;
+    }
+
+    public List<String> playerTagsAny() {
+        return playerTagsAny;
+    }
+
+    public List<String> playerTagsNone() {
+        return playerTagsNone;
+    }
+
+    public List<ResourceLocation> advancementsAll() {
+        return advancementsAll;
+    }
+
+    public List<ResourceLocation> advancementsAny() {
+        return advancementsAny;
+    }
+
+    public List<ResourceLocation> dimensionsAny() {
+        return dimensionsAny;
+    }
+
+    public List<TimeRangeCondition> timeRangesAny() {
+        return timeRangesAny;
+    }
+
+    public List<ScoreCondition> scoresAll() {
+        return scoresAll;
+    }
+
     public long nextTimeBoundaryDelayTicks(long timeOfDay) {
         if (!hasTimeConditions) {
             return Long.MAX_VALUE;
@@ -327,6 +359,83 @@ public final class ConditionSet {
         } catch (NumberFormatException exception) {
             throw new IOException("Field '" + key + "' in " + context + " is not a valid integer.", exception);
         }
+    }
+
+    public static void writeOptional(JsonObject target, ConditionSet conditions) {
+        if (conditions == null || conditions.isEmpty()) {
+            return;
+        }
+
+        JsonObject object = new JsonObject();
+        writeStringArray(object, "player_tags_all", conditions.playerTagsAll());
+        writeStringArray(object, "player_tags_any", conditions.playerTagsAny());
+        writeStringArray(object, "player_tags_none", conditions.playerTagsNone());
+        writeResourceLocationArray(object, "advancements_all", conditions.advancementsAll());
+        writeResourceLocationArray(object, "advancements_any", conditions.advancementsAny());
+        writeResourceLocationArray(object, "dimensions_any", conditions.dimensionsAny());
+        writeTimeRanges(object, "time_ranges_any", conditions.timeRangesAny());
+        writeScoreConditions(object, "scores_all", conditions.scoresAll());
+        if (object.size() > 0) {
+            target.add("conditions", object);
+        }
+    }
+
+    private static void writeStringArray(JsonObject target, String key, List<String> values) {
+        if (values.isEmpty()) {
+            return;
+        }
+        JsonArray array = new JsonArray();
+        for (String value : values) {
+            array.add(value);
+        }
+        target.add(key, array);
+    }
+
+    private static void writeResourceLocationArray(JsonObject target, String key, List<ResourceLocation> values) {
+        if (values.isEmpty()) {
+            return;
+        }
+        JsonArray array = new JsonArray();
+        for (ResourceLocation value : values) {
+            array.add(value.toString());
+        }
+        target.add(key, array);
+    }
+
+    private static void writeTimeRanges(JsonObject target, String key, List<TimeRangeCondition> ranges) {
+        if (ranges.isEmpty()) {
+            return;
+        }
+        JsonArray array = new JsonArray();
+        for (TimeRangeCondition range : ranges) {
+            JsonObject rangeObject = new JsonObject();
+            rangeObject.addProperty("start_tick", range.startTick());
+            rangeObject.addProperty("end_tick", range.endTick());
+            array.add(rangeObject);
+        }
+        target.add(key, array);
+    }
+
+    private static void writeScoreConditions(JsonObject target, String key, List<ScoreCondition> scoreConditions) {
+        if (scoreConditions.isEmpty()) {
+            return;
+        }
+        JsonArray array = new JsonArray();
+        for (ScoreCondition scoreCondition : scoreConditions) {
+            JsonObject scoreObject = new JsonObject();
+            scoreObject.addProperty("objective", scoreCondition.objective());
+            if (scoreCondition.min() != null) {
+                scoreObject.addProperty("min", scoreCondition.min());
+            }
+            if (scoreCondition.max() != null) {
+                scoreObject.addProperty("max", scoreCondition.max());
+            }
+            if (scoreCondition.equals() != null) {
+                scoreObject.addProperty("equals", scoreCondition.equals());
+            }
+            array.add(scoreObject);
+        }
+        target.add(key, array);
     }
 
     public record ScoreCondition(String objective, Integer min, Integer max, Integer equals) {

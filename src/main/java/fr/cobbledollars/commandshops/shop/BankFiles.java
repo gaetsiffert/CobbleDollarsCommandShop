@@ -15,11 +15,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.mojang.brigadier.StringReader;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.commands.arguments.item.ItemParser;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -49,6 +46,15 @@ public final class BankFiles {
         }
 
         writeBankDefinition(bankFile, createDefaultGlobalBankDefinition());
+    }
+
+    static void ensureLocalBankJsonExists(String shopId, String bankJson) throws IOException {
+        Path bankFile = resolveLocalBankFile(ShopFiles.getShopDirectory().resolve(shopId));
+        Files.createDirectories(bankFile.getParent());
+        if (Files.exists(bankFile)) {
+            return;
+        }
+        Files.writeString(bankFile, bankJson);
     }
 
     public static BankDefinition loadGlobalBank(HolderLookup.Provider provider) throws IOException {
@@ -126,40 +132,23 @@ public final class BankFiles {
 
             JsonObject offerObject = offerElement.getAsJsonObject();
             String offerContext = context + ", offer #" + offerIndex;
-            ItemStack stack = readBankItemStack(offerObject, provider, offerContext);
+            ItemMatchExpression match = readBankMatchExpression(offerObject, provider, offerContext);
             BigInteger price = ConfigParsing.readBigInteger(offerObject, "price", offerContext);
             if (price.signum() < 0) {
                 throw new IOException("Field 'price' in " + offerContext + " must be positive or zero.");
             }
 
             ConditionSet conditions = ConditionSet.readOptional(offerObject, offerContext);
-            offers.add(new BankOfferDefinition(stack, price, conditions));
+            offers.add(new BankOfferDefinition(match, price, conditions));
         }
         return List.copyOf(offers);
     }
 
-    private static ItemStack readBankItemStack(JsonObject object, HolderLookup.Provider provider, String context) throws IOException {
+    private static ItemMatchExpression readBankMatchExpression(JsonObject object, HolderLookup.Provider provider, String context) throws IOException {
         if (object.has("count") && !object.get("count").isJsonNull()) {
             throw new IOException("Field 'count' is not supported in bank offers anymore. Remove it from " + context + ".");
         }
-
-        String stackDefinition = ConfigParsing.readOptionalString(object, "stack", null, context);
-        JsonElement itemElement = object.get("item");
-        boolean hasItem = itemElement != null && !itemElement.isJsonNull();
-        if ((stackDefinition == null) == !hasItem) {
-            throw new IOException("Exactly one of 'item' or 'stack' must be set in " + context + ".");
-        }
-
-        if (stackDefinition != null) {
-            try {
-                ItemParser.ItemResult parsed = new ItemParser(provider).parse(new StringReader(stackDefinition));
-                return new ItemStack(parsed.item(), 1, parsed.components());
-            } catch (CommandSyntaxException exception) {
-                throw new IOException("Field 'stack' in " + context + " is invalid: " + stackDefinition, exception);
-            }
-        }
-
-        return new ItemStack(ConfigParsing.readItem(object, "item", context), 1);
+        return ConfigParsing.readItemMatchExpression(object, provider, context);
     }
 
     private static void writeBankDefinition(Path bankFile, BankDefinition bank) throws IOException {
@@ -171,15 +160,18 @@ public final class BankFiles {
 
     private static JsonElement toJson(BankDefinition bank) {
         JsonObject root = new JsonObject();
+        ConditionSet.writeOptional(root, bank.conditions());
         JsonArray categoriesArray = new JsonArray();
         for (BankCategoryDefinition category : bank.categories()) {
             JsonObject categoryObject = new JsonObject();
             categoryObject.addProperty("name", category.name());
+            ConditionSet.writeOptional(categoryObject, category.conditions());
             JsonArray offersArray = new JsonArray();
             for (BankOfferDefinition offer : category.offers()) {
                 JsonObject offerObject = new JsonObject();
-                offerObject.addProperty("item", BuiltInRegistries.ITEM.getKey(offer.createItemStack().getItem()).toString());
+                ConfigParsing.writeMatchExpression(offerObject, offer.match());
                 offerObject.addProperty("price", offer.price());
+                ConditionSet.writeOptional(offerObject, offer.conditions());
                 offersArray.add(offerObject);
             }
             categoryObject.add("offers", offersArray);
@@ -192,22 +184,164 @@ public final class BankFiles {
     private static BankDefinition createDefaultGlobalBankDefinition() {
         List<BankCategoryDefinition> categories = List.of(
                 new BankCategoryDefinition("Ores", List.of(
-                        new BankOfferDefinition(new ItemStack(Items.COAL, 1), BigInteger.valueOf(3L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.IRON_INGOT, 1), BigInteger.valueOf(8L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.GOLD_INGOT, 1), BigInteger.valueOf(12L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.DIAMOND, 1), BigInteger.valueOf(75L), ConditionSet.NONE)
+                        new BankOfferDefinition(exactItemMatch(Items.COAL, "minecraft:coal"), BigInteger.valueOf(3L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.IRON_INGOT, "minecraft:iron_ingot"), BigInteger.valueOf(8L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.GOLD_INGOT, "minecraft:gold_ingot"), BigInteger.valueOf(12L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.DIAMOND, "minecraft:diamond"), BigInteger.valueOf(75L), ConditionSet.NONE)
                 ), ConditionSet.NONE),
                 new BankCategoryDefinition("Crops", List.of(
-                        new BankOfferDefinition(new ItemStack(Items.WHEAT, 1), BigInteger.valueOf(2L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.CARROT, 1), BigInteger.valueOf(3L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.POTATO, 1), BigInteger.valueOf(3L), ConditionSet.NONE)
+                        new BankOfferDefinition(exactItemMatch(Items.WHEAT, "minecraft:wheat"), BigInteger.valueOf(2L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.CARROT, "minecraft:carrot"), BigInteger.valueOf(3L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.POTATO, "minecraft:potato"), BigInteger.valueOf(3L), ConditionSet.NONE)
                 ), ConditionSet.NONE),
                 new BankCategoryDefinition("Mob Drops", List.of(
-                        new BankOfferDefinition(new ItemStack(Items.ROTTEN_FLESH, 1), BigInteger.valueOf(1L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.BONE, 1), BigInteger.valueOf(2L), ConditionSet.NONE),
-                        new BankOfferDefinition(new ItemStack(Items.STRING, 1), BigInteger.valueOf(2L), ConditionSet.NONE)
+                        new BankOfferDefinition(exactItemMatch(Items.ROTTEN_FLESH, "minecraft:rotten_flesh"), BigInteger.valueOf(1L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.BONE, "minecraft:bone"), BigInteger.valueOf(2L), ConditionSet.NONE),
+                        new BankOfferDefinition(exactItemMatch(Items.STRING, "minecraft:string"), BigInteger.valueOf(2L), ConditionSet.NONE)
                 ), ConditionSet.NONE)
         );
         return new BankDefinition(categories, ConditionSet.NONE, getGlobalBankFile());
+    }
+
+    private static ItemMatchExpression exactItemMatch(net.minecraft.world.item.Item item, String itemId) {
+        return ItemMatchExpression.include(new ItemMatchAtom.ExactItem(item, itemId));
+    }
+
+    static String createSyntaxShowcaseBankJson() {
+        return """
+                {
+                  "conditions": {
+                    "player_tags_none": ["syntax_showcase_banned"]
+                  },
+                  "categories": [
+                    {
+                      "name": "Mixed Match",
+                      "offers": [
+                        {
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:coal" },
+                              { "item": "minecraft:charcoal" }
+                            ]
+                          },
+                          "price": 3
+                        },
+                        {
+                          "match": {
+                            "include": [
+                              { "tag": "minecraft:wool" }
+                            ],
+                            "exclude": [
+                              { "item": "minecraft:white_wool" },
+                              { "item": "minecraft:black_wool" }
+                            ]
+                          },
+                          "price": 2
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Fallback Pricing",
+                      "offers": [
+                        {
+                          "match": {
+                            "include": [
+                              { "tag": "minecraft:logs" }
+                            ]
+                          },
+                          "price": 2
+                        },
+                        {
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:oak_log" }
+                            ]
+                          },
+                          "price": 4,
+                          "conditions": {
+                            "scores_all": [
+                              { "objective": "reputation", "min": 10 }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Exact Stack",
+                      "offers": [
+                        {
+                          "match": {
+                            "include": [
+                              { "stack": "minecraft:paper[custom_data={quest_id:\\\"syntax_ticket\\\"}]" }
+                            ]
+                          },
+                          "price": 250,
+                          "conditions": {
+                            "player_tags_any": ["quest_debug"]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Condition Matrix",
+                      "conditions": {
+                        "dimensions_any": ["minecraft:overworld"]
+                      },
+                      "offers": [
+                        {
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:amethyst_shard" }
+                            ]
+                          },
+                          "price": 7,
+                          "conditions": {
+                            "advancements_any": ["minecraft:story/mine_stone"],
+                            "time_ranges_any": [
+                              { "start_tick": 12000, "end_tick": 23999 }
+                            ]
+                          }
+                        },
+                        {
+                          "match": {
+                            "include": [
+                              { "item": "minecraft:quartz" }
+                            ]
+                          },
+                          "price": 9,
+                          "conditions": {
+                            "advancements_all": [
+                              "minecraft:story/mine_diamond",
+                              "minecraft:story/enter_the_nether"
+                            ],
+                            "player_tags_all": ["syntax_showcase_access", "merchant_permit"]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Mod Scoped",
+                      "conditions": {
+                        "player_tags_any": ["syntax_showcase_access"]
+                      },
+                      "offers": [
+                        {
+                          "match": {
+                            "include": [
+                              { "mod": "minecraft" }
+                            ],
+                            "exclude": [
+                              { "tag": "minecraft:logs" },
+                              { "tag": "minecraft:planks" },
+                              { "item": "minecraft:bedrock" }
+                            ]
+                          },
+                          "price": 1
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
     }
 }

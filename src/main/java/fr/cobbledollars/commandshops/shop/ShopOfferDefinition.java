@@ -1,22 +1,28 @@
 package fr.cobbledollars.commandshops.shop;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 public final class ShopOfferDefinition {
     private final String id;
-    private final ItemStack itemTemplate;
+    private final ItemMatchExpression match;
+    private final int count;
     private final BigInteger price;
     private final int stock;
     private final RestockRule restockRule;
     private final ConditionSet conditions;
 
-    public ShopOfferDefinition(String id, ItemStack itemTemplate, BigInteger price, int stock, RestockRule restockRule, ConditionSet conditions) {
+    public ShopOfferDefinition(String id, ItemMatchExpression match, int count, BigInteger price, int stock, RestockRule restockRule, ConditionSet conditions) {
         this.id = id;
-        this.itemTemplate = itemTemplate.copy();
+        this.match = match;
+        this.count = count;
         this.price = price;
         this.stock = stock;
         this.restockRule = restockRule;
@@ -29,6 +35,14 @@ public final class ShopOfferDefinition {
 
     public BigInteger price() {
         return price;
+    }
+
+    public ItemMatchExpression match() {
+        return match;
+    }
+
+    public int count() {
+        return count;
     }
 
     public int stock() {
@@ -56,10 +70,35 @@ public final class ShopOfferDefinition {
     }
 
     public ItemStack createItemStack() {
-        return itemTemplate.copy();
+        return match.createDisplayStack(count);
     }
 
-    public Offer createRuntimeOffer(int currentStock) {
-        return new Offer(createItemStack(), price, currentStock);
+    public List<ResolvedShopOffer> createResolvedOffers() {
+        List<ItemMatchExpression.ResolvedMatch> matches = match.resolveMatches(count);
+        ArrayList<ResolvedShopOffer> offers = new ArrayList<>(matches.size());
+        if (matches.isEmpty()) {
+            return List.of();
+        }
+
+        boolean multipleVariants = matches.size() > 1;
+        for (int index = 0; index < matches.size(); index++) {
+            ItemMatchExpression.ResolvedMatch matchResult = matches.get(index);
+            ItemStack stack = matchResult.stack();
+            offers.add(new ResolvedShopOffer(this, stack, matchResult.kind(), createStockKey(stack, multipleVariants, index)));
+        }
+        return List.copyOf(offers);
+    }
+
+    private String createStockKey(ItemStack stack, boolean multipleVariants, int variantIndex) {
+        if (!multipleVariants) {
+            return id;
+        }
+        Item item = stack.getItem();
+        String itemKey = String.valueOf(BuiltInRegistries.ITEM.getKey(item));
+        DataComponentMap components = stack.getComponents();
+        if (components.isEmpty()) {
+            return id + "@" + itemKey;
+        }
+        return id + "@" + itemKey + "#" + Integer.toHexString(components.hashCode()) + "_" + variantIndex;
     }
 }

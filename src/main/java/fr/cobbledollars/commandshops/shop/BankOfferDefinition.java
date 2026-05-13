@@ -2,23 +2,26 @@ package fr.cobbledollars.commandshops.shop;
 
 import java.math.BigInteger;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 public final class BankOfferDefinition {
-    private final ItemStack itemTemplate;
+    private final ItemMatchExpression match;
     private final BigInteger price;
     private final ConditionSet conditions;
 
-    public BankOfferDefinition(ItemStack itemTemplate, BigInteger price, ConditionSet conditions) {
-        this.itemTemplate = itemTemplate.copy();
+    public BankOfferDefinition(ItemMatchExpression match, BigInteger price, ConditionSet conditions) {
+        this.match = match;
         this.price = price;
-        this.conditions = conditions;
+        this.conditions = conditions == null ? ConditionSet.NONE : conditions;
     }
 
-    public ItemStack createItemStack() {
-        return itemTemplate.copy();
+    public ItemMatchExpression match() {
+        return match;
+    }
+
+    public ItemStack createDisplayStack() {
+        return match.createDisplayStack(1);
     }
 
     public BigInteger price() {
@@ -31,9 +34,5 @@ public final class BankOfferDefinition {
 
     public boolean isVisibleTo(ServerPlayer player) {
         return conditions.test(player);
-    }
-
-    public Offer createRuntimeOffer() {
-        return new Offer(createItemStack(), price, -1);
     }
 }
