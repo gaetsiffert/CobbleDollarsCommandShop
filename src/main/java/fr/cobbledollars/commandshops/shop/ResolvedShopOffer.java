@@ -10,6 +10,11 @@ public record ResolvedShopOffer(ShopOfferDefinition source, ItemStack itemStack,
         itemStack = itemStack.copy();
     }
 
+    @Override
+    public ItemStack itemStack() {
+        return itemStack.copy();
+    }
+
     public String sourceId() {
         return source.id();
     }
@@ -32,6 +37,10 @@ public record ResolvedShopOffer(ShopOfferDefinition source, ItemStack itemStack,
 
     public boolean hasRestockRule() {
         return source.hasRestockRule();
+    }
+
+    ItemStack template() {
+        return itemStack;
     }
 
     public Offer createRuntimeOffer(int currentStock) {

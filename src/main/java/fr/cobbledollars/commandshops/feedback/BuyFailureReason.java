@@ -1,6 +1,7 @@
 package fr.cobbledollars.commandshops.feedback;
 
 public enum BuyFailureReason {
+    INVALID_AMOUNT,
     NOT_ENOUGH_MONEY,
     NOT_ENOUGH_SPACE,
     OUT_OF_STOCK,

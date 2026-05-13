@@ -19,6 +19,7 @@ public final class ShopOfferDefinition {
     private final RestockRule restockRule;
     private final ConditionSet conditions;
     private final List<PurchaseBonusDefinition> purchaseBonuses;
+    private volatile List<ResolvedShopOffer> resolvedOffers;
 
     public ShopOfferDefinition(
             String id,
@@ -91,6 +92,10 @@ public final class ShopOfferDefinition {
         return conditions.test(player);
     }
 
+    boolean isVisibleTo(ConditionSet.ConditionContext context) {
+        return conditions.test(context);
+    }
+
     public List<ItemStack> createBonusRewardStacks(int purchasedBundles) {
         if (purchaseBonuses.isEmpty() || purchasedBundles <= 0) {
             return List.of();
@@ -104,10 +109,30 @@ public final class ShopOfferDefinition {
     }
 
     public ItemStack createItemStack() {
-        return match.createDisplayStack(count);
+        List<ResolvedShopOffer> offers = createResolvedOffers();
+        if (offers.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        return offers.get(0).itemStack();
     }
 
     public List<ResolvedShopOffer> createResolvedOffers() {
+        List<ResolvedShopOffer> cachedOffers = resolvedOffers;
+        if (cachedOffers != null) {
+            return cachedOffers;
+        }
+
+        synchronized (this) {
+            cachedOffers = resolvedOffers;
+            if (cachedOffers == null) {
+                cachedOffers = resolveOffers();
+                resolvedOffers = cachedOffers;
+            }
+        }
+        return cachedOffers;
+    }
+
+    private List<ResolvedShopOffer> resolveOffers() {
         List<ItemMatchExpression.ResolvedMatch> matches = match.resolveMatches(count);
         ArrayList<ResolvedShopOffer> offers = new ArrayList<>(matches.size());
         if (matches.isEmpty()) {

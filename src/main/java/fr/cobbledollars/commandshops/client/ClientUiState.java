@@ -71,6 +71,7 @@ public final class ClientUiState {
     private static final int BUTTON_TEXT = 0xFF6CD987;
     private static final int ACCEPTED_ITEMS_PER_PAGE = 8;
     private static final float POPUP_LAYER_Z = 4000.0F;
+    private static final Bank EMPTY_BANK = new Bank();
 
     private static SessionState currentShopState;
     private static ClientBankState currentBankState;
@@ -83,6 +84,8 @@ public final class ClientUiState {
     private static boolean suppressBankTooltipAugment;
     private static EditBox acceptedItemsSearchBox;
     private static boolean modalRenderHandledInPre;
+    private static AcceptedItemsEntryCache acceptedItemsEntryCache;
+    private static AcceptedItemsFilterCache acceptedItemsFilterCache;
 
     private ClientUiState() {
     }
@@ -97,10 +100,12 @@ public final class ClientUiState {
             offersByKey.put(new OfferKey(offerState.categoryIndex(), offerState.offerIndex()), offerState);
         }
         currentShopState = new SessionState(payload.sessionUuid(), Map.copyOf(offersByKey));
+        clampSelectedBuyAmountToStock();
     }
 
     public static void acceptBankUiState(BankUiStatePayload payload) {
         currentBankState = ClientBankState.fromPayload(payload);
+        invalidateAcceptedItemsCache();
     }
 
     public static void clear() {
@@ -115,6 +120,7 @@ public final class ClientUiState {
         suppressBankTooltipAugment = false;
         acceptedItemsSearchBox = null;
         modalRenderHandledInPre = false;
+        invalidateAcceptedItemsCache();
     }
 
     public static boolean renderCustomShopOfferTooltip(Offer offer, Minecraft minecraft, GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -206,6 +212,7 @@ public final class ClientUiState {
         acceptedItemsSearchBox.setResponder(value -> {
             acceptedItemsSearchQuery = value;
             acceptedItemsPage = 0;
+            acceptedItemsFilterCache = null;
         });
         acceptedItemsSearchBox.setValue(acceptedItemsSearchQuery);
         acceptedItemsSearchBox.setFocused(false);
@@ -491,6 +498,38 @@ public final class ClientUiState {
         return sessionState.offersByKey().get(new OfferKey(categoryIndex, offerIndex));
     }
 
+    private static void clampSelectedBuyAmountToStock() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!(minecraft.screen instanceof ShopScreen shopScreen)) {
+            return;
+        }
+
+        CategoryListWidget.CategoryEntry categoryEntry = shopScreen.getCategoryList().getSelected();
+        if (categoryEntry == null || categoryEntry.getCategoryIndex() == null) {
+            return;
+        }
+
+        OfferListWidget.OfferEntry offerEntry = shopScreen.getOfferList().getSelected();
+        if (offerEntry == null || offerEntry.isAddOffer() || offerEntry.getOfferIndex() == null) {
+            return;
+        }
+
+        ShopUiStatePayload.OfferState offerState = getOfferState(shopScreen, categoryEntry.getCategoryIndex(), offerEntry.getOfferIndex());
+        if (offerState == null || offerState.stock() < 0) {
+            return;
+        }
+
+        int clampedAmount = Math.max(1, offerState.stock());
+        if (shopScreen.getBuyAmount() <= clampedAmount) {
+            return;
+        }
+
+        shopScreen.setBuyAmount(clampedAmount);
+        if (shopScreen.buyAmountBox != null) {
+            shopScreen.buyAmountBox.setValue(Integer.toString(clampedAmount));
+        }
+    }
+
     private static MutableComponent buildOfferHeadline(Offer offer, int stock) {
         MutableComponent headline = colored(offer.getItem().getHoverName().copy(), 0xFF55FFFF)
                 .append(Component.literal(" $ " + offer.getPrice()).withStyle(style -> style.withColor(0xFF55FF55)));
@@ -690,27 +729,28 @@ public final class ClientUiState {
     }
 
     private static List<AcceptedItemEntry> getFilteredAcceptedItemEntries() {
-        List<Offer> offers = getClientBankOffers();
-        ArrayList<AcceptedItemEntry> entries = new ArrayList<>(offers.size());
-        for (Offer offer : offers) {
-            entries.add(new AcceptedItemEntry(offer, offer.getItem().getHoverName().getString()));
-        }
-        entries.sort(Comparator
-                .comparing(ClientUiState::getAcceptedItemModSortKey, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(ClientUiState::getAcceptedItemRegistrySortKey, String.CASE_INSENSITIVE_ORDER));
-        String query = acceptedItemsSearchQuery.trim().toLowerCase();
+        List<AcceptedItemEntry> entries = getSortedAcceptedItemEntries();
+        String query = normalizeAcceptedItemsQuery(acceptedItemsSearchQuery);
         if (query.isEmpty()) {
             return entries;
         }
 
+        AcceptedItemsFilterCache filterCache = acceptedItemsFilterCache;
+        if (filterCache != null
+                && filterCache.sortedEntries() == entries
+                && filterCache.normalizedQuery().equals(query)) {
+            return filterCache.filteredEntries();
+        }
+
         ArrayList<AcceptedItemEntry> filtered = new ArrayList<>();
         for (AcceptedItemEntry entry : entries) {
-            if (entry.name().toLowerCase().contains(query)) {
+            if (entry.normalizedName().contains(query)) {
                 filtered.add(entry);
             }
         }
-        return filtered;
+        List<AcceptedItemEntry> filteredEntries = List.copyOf(filtered);
+        acceptedItemsFilterCache = new AcceptedItemsFilterCache(entries, query, filteredEntries);
+        return filteredEntries;
     }
 
     private static void renderSearchBox(GuiGraphics guiGraphics, Font font, Rect rect, int mouseX, int mouseY) {
@@ -747,6 +787,7 @@ public final class ClientUiState {
         acceptedItemsSearchBox.setResponder(value -> {
             acceptedItemsSearchQuery = value;
             acceptedItemsPage = 0;
+            acceptedItemsFilterCache = null;
         });
         acceptedItemsSearchBox.setValue(acceptedItemsSearchQuery);
         acceptedItemsSearchBox.setFocused(acceptedItemsSearchFocused);
@@ -761,19 +802,9 @@ public final class ClientUiState {
         acceptedItemsPage = Math.max(0, Math.min(acceptedItemsPage + delta, pageCount - 1));
     }
 
-    private static String getAcceptedItemModSortKey(AcceptedItemEntry entry) {
-        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(entry.offer().getItem().getItem());
-        return itemId.getNamespace();
-    }
-
-    private static String getAcceptedItemRegistrySortKey(AcceptedItemEntry entry) {
-        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(entry.offer().getItem().getItem());
-        return itemId.toString().toLowerCase(Locale.ROOT);
-    }
-
     private static Bank getClientBank() {
         Bank bank = ClientShopConfig.INSTANCE.getBank();
-        return bank == null ? new Bank() : bank;
+        return bank == null ? EMPTY_BANK : bank;
     }
 
     private static List<Offer> getClientBankOffers() {
@@ -790,6 +821,53 @@ public final class ClientUiState {
             return bankState.get(stack);
         }
         return getClientBank().get(stack);
+    }
+
+    private static void invalidateAcceptedItemsCache() {
+        acceptedItemsEntryCache = null;
+        acceptedItemsFilterCache = null;
+    }
+
+    private static List<AcceptedItemEntry> getSortedAcceptedItemEntries() {
+        List<Offer> offers = getClientBankOffers();
+        String languageCode = getLanguageCode();
+        AcceptedItemsEntryCache entryCache = acceptedItemsEntryCache;
+        if (entryCache != null
+                && entryCache.sourceOffers() == offers
+                && entryCache.languageCode().equals(languageCode)) {
+            return entryCache.entries();
+        }
+
+        ArrayList<AcceptedItemEntry> entries = new ArrayList<>(offers.size());
+        for (Offer offer : offers) {
+            String name = offer.getItem().getHoverName().getString();
+            String normalizedName = name.toLowerCase(Locale.ROOT);
+            ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(offer.getItem().getItem());
+            entries.add(new AcceptedItemEntry(
+                    offer,
+                    name,
+                    normalizedName,
+                    itemId.getNamespace(),
+                    itemId.toString().toLowerCase(Locale.ROOT)
+            ));
+        }
+        entries.sort(Comparator
+                .comparing(AcceptedItemEntry::modSortKey, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(AcceptedItemEntry::registrySortKey, String.CASE_INSENSITIVE_ORDER));
+
+        List<AcceptedItemEntry> cachedEntries = List.copyOf(entries);
+        acceptedItemsEntryCache = new AcceptedItemsEntryCache(offers, languageCode, cachedEntries);
+        acceptedItemsFilterCache = null;
+        return cachedEntries;
+    }
+
+    private static String getLanguageCode() {
+        return Minecraft.getInstance().getLanguageManager().getSelected();
+    }
+
+    private static String normalizeAcceptedItemsQuery(String query) {
+        return query.trim().toLowerCase(Locale.ROOT);
     }
 
     private static OverlayMessage getOverlayMessage(long nowMillis) {
@@ -944,7 +1022,13 @@ public final class ClientUiState {
     private record OfferContext(Offer offer, ShopUiStatePayload.OfferState offerState) {
     }
 
-    private record AcceptedItemEntry(Offer offer, String name) {
+    private record AcceptedItemsEntryCache(List<Offer> sourceOffers, String languageCode, List<AcceptedItemEntry> entries) {
+    }
+
+    private record AcceptedItemsFilterCache(List<AcceptedItemEntry> sortedEntries, String normalizedQuery, List<AcceptedItemEntry> filteredEntries) {
+    }
+
+    private record AcceptedItemEntry(Offer offer, String name, String normalizedName, String modSortKey, String registrySortKey) {
     }
 
     private record Rect(int x, int y, int width, int height) {

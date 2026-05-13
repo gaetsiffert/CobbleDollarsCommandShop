@@ -14,6 +14,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.StackCountMath;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
@@ -43,8 +44,9 @@ public final class TransactionAuditLogger {
         event.addProperty("shop_id", shop.id());
         event.addProperty("offer_id", offer.sourceId());
         event.addProperty("bundle_amount", bundleAmount);
-        event.add("bundle_item", stackToJson(offer.itemStack().copyWithCount(offer.itemStack().getCount())));
-        event.addProperty("item_count", Math.multiplyExact(offer.itemStack().getCount(), bundleAmount));
+        ItemStack bundleTemplate = offer.template();
+        event.add("bundle_item", stackToJson(bundleTemplate.copyWithCount(bundleTemplate.getCount())));
+        event.addProperty("item_count", StackCountMath.multiplyToLong(bundleTemplate.getCount(), bundleAmount));
         event.addProperty("total_price", totalPrice.toString());
         JsonArray bonusArray = new JsonArray();
         for (ItemStack bonusItem : bonusItems) {

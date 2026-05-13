@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.math.BigInteger;
 
 import fr.cobbledollars.commandshops.network.ClientUiSync;
-import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -29,10 +28,6 @@ public final class ShopFeedbackService {
 
     public static void clear() {
         config = FeedbackConfig.defaults();
-    }
-
-    public static void onShopDenied(ServerPlayer player, ShopDefinition shop) {
-        emit(player, config.shopDenied(), FeedbackFormatter.shopDenied(shop), FAILURE_COLOR, 3200);
     }
 
     public static void onShopDenied(ServerPlayer player, Component message) {

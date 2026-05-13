@@ -1,5 +1,9 @@
 package fr.cobbledollars.commandshops.network;
 
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
+
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
@@ -13,6 +17,8 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 @EventBusSubscriber(modid = CobbleDollarsCommandShopsMod.MODID)
 public final class CommandShopPayloads {
     private static final String NETWORK_VERSION = "2";
+    private static final String CLIENT_UI_STATE_CLASS = "fr.cobbledollars.commandshops.client.ClientUiState";
+    private static final Map<String, Method> CLIENT_HANDLER_METHODS = new HashMap<>();
 
     private CommandShopPayloads() {
     }
@@ -48,8 +54,13 @@ public final class CommandShopPayloads {
 
     private static void invokeClientHandler(String methodName, Class<?> parameterType, Object payload) {
         try {
-            Class<?> clientStateClass = Class.forName("fr.cobbledollars.commandshops.client.ClientUiState");
-            clientStateClass.getMethod(methodName, parameterType).invoke(null, payload);
+            Method handlerMethod = CLIENT_HANDLER_METHODS.get(methodName);
+            if (handlerMethod == null) {
+                Class<?> clientStateClass = Class.forName(CLIENT_UI_STATE_CLASS);
+                handlerMethod = clientStateClass.getMethod(methodName, parameterType);
+                CLIENT_HANDLER_METHODS.put(methodName, handlerMethod);
+            }
+            handlerMethod.invoke(null, payload);
         } catch (ReflectiveOperationException exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to dispatch optional client UI payload '{}'.", methodName, exception);
         }

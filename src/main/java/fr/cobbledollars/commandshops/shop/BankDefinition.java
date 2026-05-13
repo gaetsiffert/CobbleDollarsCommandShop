@@ -51,44 +51,38 @@ public final class BankDefinition {
     }
 
     public RuntimeBankData createRuntimeData(ServerPlayer player) {
-        if (!conditions.test(player)) {
+        ConditionSet.ConditionContext context = ConditionSet.ConditionContext.capture(player);
+        if (!conditions.test(context)) {
             return emptyData();
-        }
-
-        ArrayList<BankOfferCandidate> candidates = new ArrayList<>();
-        int sourceOrder = 0;
-        for (BankCategoryDefinition category : categories) {
-            if (!category.conditions().test(player)) {
-                continue;
-            }
-            for (BankOfferDefinition offer : category.offers()) {
-                if (!offer.isVisibleTo(player)) {
-                    continue;
-                }
-                for (ItemMatchExpression.ResolvedMatch resolvedMatch : offer.match().resolveMatches(1)) {
-                    candidates.add(new BankOfferCandidate(
-                            sourceOrder,
-                            resolvedMatch.kind(),
-                            new Offer(resolvedMatch.stack().copy(), offer.price(), -1)
-                    ));
-                }
-                sourceOrder++;
-            }
         }
 
         HashMap<BankLookupKey, BankOfferCandidate> exactCandidates = new HashMap<>();
         HashMap<Item, BankOfferCandidate> genericCandidates = new HashMap<>();
-        for (BankOfferCandidate candidate : candidates) {
-            if (candidate.kind() == ItemMatchAtom.Kind.STACK) {
-                exactCandidates.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+        LinkedHashMap<BankLookupKey, BankOfferCandidate> displayWinners = new LinkedHashMap<>();
+        int sourceOrder = 0;
+        for (BankCategoryDefinition category : categories) {
+            if (!category.conditions().test(context)) {
                 continue;
             }
-            genericCandidates.merge(candidate.offer().getItem().getItem(), candidate, BankDefinition::selectBetterCandidate);
-        }
-
-        LinkedHashMap<BankLookupKey, BankOfferCandidate> displayWinners = new LinkedHashMap<>();
-        for (BankOfferCandidate candidate : candidates) {
-            displayWinners.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+            for (BankOfferDefinition offer : category.offers()) {
+                if (!offer.isVisibleTo(context)) {
+                    continue;
+                }
+                for (ResolvedBankOffer resolvedOffer : offer.createResolvedOffers()) {
+                    BankOfferCandidate candidate = new BankOfferCandidate(
+                            sourceOrder,
+                            resolvedOffer.matchKind(),
+                            resolvedOffer.createRuntimeOffer()
+                    );
+                    if (candidate.kind() == ItemMatchAtom.Kind.STACK) {
+                        exactCandidates.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+                    } else {
+                        genericCandidates.merge(candidate.offer().getItem().getItem(), candidate, BankDefinition::selectBetterCandidate);
+                    }
+                    displayWinners.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+                }
+                sourceOrder++;
+            }
         }
 
         ArrayList<Offer> runtimeOffers = new ArrayList<>();

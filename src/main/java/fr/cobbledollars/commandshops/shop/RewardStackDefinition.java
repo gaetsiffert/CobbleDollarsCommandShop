@@ -5,6 +5,7 @@ import java.io.IOException;
 import com.google.gson.JsonObject;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import fr.cobbledollars.commandshops.StackCountMath;
 import net.minecraft.commands.arguments.item.ItemParser;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -57,6 +58,7 @@ public record RewardStackDefinition(ItemStack template, String itemId, String st
     }
 
     public ItemStack createScaledStack(int multiplier) {
-        return template.copyWithCount(Math.multiplyExact(template.getCount(), multiplier));
+        long totalCount = StackCountMath.multiplyToLong(template.getCount(), multiplier);
+        return template.copyWithCount(StackCountMath.toIntExact(totalCount, "reward stack count"));
     }
 }

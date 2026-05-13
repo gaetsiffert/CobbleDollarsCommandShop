@@ -14,7 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
 
 public final class ShopRegistry {
-    private static RegistryState state = RegistryState.empty();
+    private static volatile RegistryState state = RegistryState.empty();
 
     private ShopRegistry() {
     }

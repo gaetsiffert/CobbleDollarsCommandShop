@@ -127,19 +127,23 @@ public final class ShopDefinition {
     }
 
     public ShopOfferDefinition getVisibleOffer(ServerPlayer player, int categoryIndex, int offerIndex) {
-        if (categoryIndex < 0 || offerIndex < 0 || !conditions.test(player)) {
+        return getVisibleOffer(ConditionSet.ConditionContext.capture(player), categoryIndex, offerIndex);
+    }
+
+    ShopOfferDefinition getVisibleOffer(ConditionSet.ConditionContext context, int categoryIndex, int offerIndex) {
+        if (categoryIndex < 0 || offerIndex < 0 || !conditions.test(context)) {
             return null;
         }
 
         int visibleCategoryIndex = 0;
         for (ShopCategoryDefinition categoryDefinition : categories) {
-            if (!categoryDefinition.conditions().test(player)) {
+            if (!categoryDefinition.conditions().test(context)) {
                 continue;
             }
 
             int visibleOfferIndex = 0;
             for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
-                if (!offerDefinition.isVisibleTo(player)) {
+                if (!offerDefinition.isVisibleTo(context)) {
                     continue;
                 }
 
@@ -193,7 +197,8 @@ public final class ShopDefinition {
 
     public RuntimeShopData createRuntimeData(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {
         Shop runtimeShop = new Shop();
-        if (!conditions.test(player)) {
+        ConditionSet.ConditionContext context = ConditionSet.ConditionContext.capture(player);
+        if (!conditions.test(context)) {
             return new RuntimeShopData(runtimeShop, List.of());
         }
 
@@ -201,13 +206,13 @@ public final class ShopDefinition {
         ArrayList<ResolvedShopCandidate> allCandidates = new ArrayList<>();
         int sourceOrder = 0;
         for (ShopCategoryDefinition categoryDefinition : categories) {
-            if (!categoryDefinition.conditions().test(player)) {
+            if (!categoryDefinition.conditions().test(context)) {
                 continue;
             }
 
             ArrayList<ResolvedShopCandidate> categoryCandidates = new ArrayList<>();
             for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
-                if (!offerDefinition.isVisibleTo(player)) {
+                if (!offerDefinition.isVisibleTo(context)) {
                     continue;
                 }
                 for (ResolvedShopOffer resolvedOffer : offerDefinition.createResolvedOffers()) {
@@ -222,7 +227,7 @@ public final class ShopDefinition {
 
         HashMap<ShopDisplayKey, ResolvedShopCandidate> winners = new HashMap<>();
         for (ResolvedShopCandidate candidate : allCandidates) {
-            winners.merge(displayKey(candidate.offer().itemStack()), candidate, ShopDefinition::selectBetterCandidate);
+            winners.merge(displayKey(candidate.offer().template()), candidate, ShopDefinition::selectBetterCandidate);
         }
 
         UUID playerUuid = player.getUUID();
@@ -231,7 +236,7 @@ public final class ShopDefinition {
             ArrayList<Offer> cobbleOffers = new ArrayList<>(categoryContext.candidates().size());
             ArrayList<RuntimeShopOfferEntry> resolvedOffers = new ArrayList<>(categoryContext.candidates().size());
             for (ResolvedShopCandidate candidate : categoryContext.candidates()) {
-                if (winners.get(displayKey(candidate.offer().itemStack())) != candidate) {
+                if (winners.get(displayKey(candidate.offer().template())) != candidate) {
                     continue;
                 }
 

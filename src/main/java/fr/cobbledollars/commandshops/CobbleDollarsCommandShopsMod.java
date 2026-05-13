@@ -52,13 +52,13 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player && player.getServer() != null) {
-            CommandShopSessions.cleanupPlayer(player.getServer(), player.getUUID());
+            CommandShopSessions.cleanupPlayer(player.getUUID());
         }
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        CommandShopSessions.cleanupAll(event.getServer());
+        CommandShopSessions.cleanupAll();
         ShopFeedbackService.clear();
         ShopRegistry.clear();
     }

@@ -252,7 +252,6 @@ final class ConfigParsing {
             for (Holder<Item> holder : holders) {
                 items.add(holder.value());
             }
-            items.sort(Comparator.comparing(item -> String.valueOf(BuiltInRegistries.ITEM.getKey(item))));
             return new ItemMatchAtom.Tag(tagKey, normalizedTag, items);
         }
 
@@ -267,7 +266,6 @@ final class ConfigParsing {
         if (items.isEmpty()) {
             throw new IOException("Field 'mod' in " + context + " does not resolve to any registered item namespace: " + normalizedMod);
         }
-        items.sort(Comparator.comparing(item -> String.valueOf(BuiltInRegistries.ITEM.getKey(item))));
         return new ItemMatchAtom.Mod(normalizedMod, normalizedMod, items);
     }
 

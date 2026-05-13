@@ -4,6 +4,7 @@
   "cobbledollarscommandshops.feedback.stack_amount": "%1$sx %2$s",
   "cobbledollarscommandshops.feedback.buy_success": "Acheté %1$s pour %2$s.",
   "cobbledollarscommandshops.feedback.buy_success.stock_left": "Acheté %1$s pour %2$s. Stock restant : %3$s.",
+  "cobbledollarscommandshops.feedback.buy_failure.invalid_amount": "La quantité demandée est invalide ou trop élevée.",
   "cobbledollarscommandshops.feedback.buy_failure.not_enough_money": "Pas assez de CobbleDollars.",
   "cobbledollarscommandshops.feedback.buy_failure.not_enough_space": "Pas assez de place dans l'inventaire.",
   "cobbledollarscommandshops.feedback.buy_failure.out_of_stock": "Rupture de stock.",

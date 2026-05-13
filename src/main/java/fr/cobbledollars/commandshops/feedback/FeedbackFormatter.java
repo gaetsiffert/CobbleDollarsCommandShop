@@ -1,17 +1,14 @@
 package fr.cobbledollars.commandshops.feedback;
 
 import java.math.BigInteger;
-import fr.cobbledollars.commandshops.shop.ShopDefinition;
+
+import fr.cobbledollars.commandshops.StackCountMath;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.item.ItemStack;
 
 public final class FeedbackFormatter {
     private FeedbackFormatter() {
-    }
-
-    public static Component shopDenied(ShopDefinition shop) {
-        return shopDenied(shop.denyMessage());
     }
 
     public static Component shopDenied(String denyMessage) {
@@ -37,6 +34,7 @@ public final class FeedbackFormatter {
 
     public static Component buyFailure(BuyFailureReason reason) {
         return switch (reason) {
+            case INVALID_AMOUNT -> Component.translatable("cobbledollarscommandshops.feedback.buy_failure.invalid_amount");
             case NOT_ENOUGH_MONEY -> Component.translatable("cobbledollarscommandshops.feedback.buy_failure.not_enough_money");
             case NOT_ENOUGH_SPACE -> Component.translatable("cobbledollarscommandshops.feedback.buy_failure.not_enough_space");
             case OUT_OF_STOCK -> Component.translatable("cobbledollarscommandshops.feedback.buy_failure.out_of_stock");
@@ -62,7 +60,7 @@ public final class FeedbackFormatter {
     }
 
     private static MutableComponent formatStackAmount(ItemStack bundleTemplate, int amount) {
-        int totalCount = Math.multiplyExact(bundleTemplate.getCount(), amount);
+        long totalCount = StackCountMath.multiplyToLong(bundleTemplate.getCount(), amount);
         return Component.translatable("cobbledollarscommandshops.feedback.stack_amount", totalCount, bundleTemplate.getHoverName());
     }
 

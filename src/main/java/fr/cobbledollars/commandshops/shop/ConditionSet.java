@@ -2,7 +2,9 @@ package fr.cobbledollars.commandshops.shop;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.gson.JsonArray;
@@ -155,11 +157,15 @@ public final class ConditionSet {
     }
 
     public boolean test(ServerPlayer player) {
+        return test(ConditionContext.capture(player));
+    }
+
+    public boolean test(ConditionContext context) {
         if (isEmpty()) {
             return true;
         }
 
-        Set<String> playerTags = player.getTags();
+        Set<String> playerTags = context.playerTags();
         if (!playerTags.containsAll(playerTagsAll)) {
             return false;
         }
@@ -182,14 +188,14 @@ public final class ConditionSet {
         }
 
         for (ResourceLocation advancementId : advancementsAll) {
-            if (!hasAdvancement(player, advancementId)) {
+            if (!context.hasAdvancement(advancementId)) {
                 return false;
             }
         }
         if (!advancementsAny.isEmpty()) {
             boolean matched = false;
             for (ResourceLocation advancementId : advancementsAny) {
-                if (hasAdvancement(player, advancementId)) {
+                if (context.hasAdvancement(advancementId)) {
                     matched = true;
                     break;
                 }
@@ -200,7 +206,7 @@ public final class ConditionSet {
         }
 
         if (!dimensionsAny.isEmpty()) {
-            ResourceLocation currentDimension = player.level().dimension().location();
+            ResourceLocation currentDimension = context.dimensionId();
             boolean matched = false;
             for (ResourceLocation dimensionId : dimensionsAny) {
                 if (currentDimension.equals(dimensionId)) {
@@ -214,7 +220,7 @@ public final class ConditionSet {
         }
 
         if (!timeRangesAny.isEmpty()) {
-            long timeOfDay = Math.floorMod(player.level().getDayTime(), 24000L);
+            long timeOfDay = context.timeOfDay();
             boolean matched = false;
             for (TimeRangeCondition range : timeRangesAny) {
                 if (range.test(timeOfDay)) {
@@ -228,17 +234,12 @@ public final class ConditionSet {
         }
 
         for (ScoreCondition scoreCondition : scoresAll) {
-            if (!scoreCondition.test(player)) {
+            if (!scoreCondition.test(context)) {
                 return false;
             }
         }
 
         return true;
-    }
-
-    private static boolean hasAdvancement(ServerPlayer player, ResourceLocation advancementId) {
-        AdvancementHolder advancement = player.getServer().getAdvancements().get(advancementId);
-        return advancement != null && player.getAdvancements().getOrStartProgress(advancement).isDone();
     }
 
     private static long delayToBoundary(long currentTimeOfDay, int boundaryTick) {
@@ -440,25 +441,21 @@ public final class ConditionSet {
 
     public record ScoreCondition(String objective, Integer min, Integer max, Integer equals) {
         public boolean test(ServerPlayer player) {
-            Scoreboard scoreboard = player.getScoreboard();
-            Objective scoreboardObjective = scoreboard.getObjective(objective);
-            if (scoreboardObjective == null) {
-                return false;
-            }
+            return test(ConditionContext.capture(player));
+        }
 
-            ReadOnlyScoreInfo scoreInfo = scoreboard.getPlayerScoreInfo(player, scoreboardObjective);
-            if (scoreInfo == null) {
+        public boolean test(ConditionContext context) {
+            Integer value = context.score(objective);
+            if (value == null) {
                 return false;
             }
-
-            int value = scoreInfo.value();
-            if (equals != null && value != equals.intValue()) {
+            if (equals != null && value.intValue() != equals.intValue()) {
                 return false;
             }
-            if (min != null && value < min.intValue()) {
+            if (min != null && value.intValue() < min.intValue()) {
                 return false;
             }
-            if (max != null && value > max.intValue()) {
+            if (max != null && value.intValue() > max.intValue()) {
                 return false;
             }
             return true;
@@ -471,6 +468,68 @@ public final class ConditionSet {
                 return timeOfDay >= startTick && timeOfDay < endTick;
             }
             return timeOfDay >= startTick || timeOfDay < endTick;
+        }
+    }
+
+    public static final class ConditionContext {
+        private final ServerPlayer player;
+        private final Set<String> playerTags;
+        private final ResourceLocation dimensionId;
+        private final long timeOfDay;
+        private final Map<ResourceLocation, Boolean> advancementsById = new HashMap<>();
+        private final Map<String, Integer> scoresByObjective = new HashMap<>();
+
+        private ConditionContext(ServerPlayer player) {
+            this.player = player;
+            this.playerTags = player.getTags();
+            this.dimensionId = player.level().dimension().location();
+            this.timeOfDay = Math.floorMod(player.level().getDayTime(), 24000L);
+        }
+
+        public static ConditionContext capture(ServerPlayer player) {
+            return new ConditionContext(player);
+        }
+
+        private Set<String> playerTags() {
+            return playerTags;
+        }
+
+        private ResourceLocation dimensionId() {
+            return dimensionId;
+        }
+
+        private long timeOfDay() {
+            return timeOfDay;
+        }
+
+        private boolean hasAdvancement(ResourceLocation advancementId) {
+            Boolean cached = advancementsById.get(advancementId);
+            if (cached != null) {
+                return cached.booleanValue();
+            }
+
+            AdvancementHolder advancement = player.getServer().getAdvancements().get(advancementId);
+            boolean completed = advancement != null && player.getAdvancements().getOrStartProgress(advancement).isDone();
+            advancementsById.put(advancementId, completed);
+            return completed;
+        }
+
+        private Integer score(String objectiveName) {
+            if (scoresByObjective.containsKey(objectiveName)) {
+                return scoresByObjective.get(objectiveName);
+            }
+
+            Scoreboard scoreboard = player.getScoreboard();
+            Objective scoreboardObjective = scoreboard.getObjective(objectiveName);
+            Integer value = null;
+            if (scoreboardObjective != null) {
+                ReadOnlyScoreInfo scoreInfo = scoreboard.getPlayerScoreInfo(player, scoreboardObjective);
+                if (scoreInfo != null) {
+                    value = scoreInfo.value();
+                }
+            }
+            scoresByObjective.put(objectiveName, value);
+            return value;
         }
     }
 }

@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.StackCountMath;
 import fr.cobbledollars.commandshops.feedback.BuyFailureReason;
 import fr.cobbledollars.commandshops.feedback.SellFailureReason;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
@@ -55,7 +56,7 @@ public final class CommandShopSessions {
             throw new IllegalStateException("Player does not meet the conditions for shop '" + shop.id() + "'.");
         }
 
-        cleanupPlayer(server, player.getUUID());
+        cleanupPlayer(player.getUUID());
 
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
@@ -146,7 +147,7 @@ public final class CommandShopSessions {
         }
 
         if (!viewingSession) {
-            cleanupPlayer(server, player.getUUID());
+            cleanupPlayer(player.getUUID());
             return true;
         }
 
@@ -159,8 +160,6 @@ public final class CommandShopSessions {
         long nowMillis = System.currentTimeMillis();
         ShopDefinition.RuntimeShopData currentRuntimeData = shop.createRuntimeData(stockData, player, nowMillis);
         Shop currentRuntimeShop = currentRuntimeData.shop();
-        refreshSessionShop(player, session, currentRuntimeShop);
-        syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
 
         ResolvedShopOffer offerDefinition = currentRuntimeData.getResolvedOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (offerDefinition == null) {
@@ -178,8 +177,9 @@ public final class CommandShopSessions {
             return true;
         }
 
-        int requestedAmount = Math.max(0, packet.getAmount());
+        int requestedAmount = packet.getAmount();
         if (requestedAmount <= 0) {
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.INVALID_AMOUNT);
             return true;
         }
         int amount = requestedAmount;
@@ -204,14 +204,16 @@ public final class CommandShopSessions {
             return true;
         }
 
-        List<ItemStack> bonusItems = offerDefinition.source().createBonusRewardStacks(amount);
-        ArrayList<ItemStack> deliveries = new ArrayList<>();
-        appendDeliveryStacks(deliveries, expectedOffer.getItem(), amount);
-        for (ItemStack bonusItem : bonusItems) {
-            appendDeliveryStacks(deliveries, bonusItem, 1);
+        PurchaseExecutionPlan purchasePlan = buildPurchaseExecutionPlan(offerDefinition, expectedOffer, amount);
+        if (purchasePlan == null) {
+            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.INVALID_AMOUNT);
+            return true;
         }
+
+        List<ItemStack> bonusItems = purchasePlan.bonusItems();
         InventorySnapshot inventorySnapshot = InventorySnapshot.capture(player);
-        InventorySnapshot deliveredInventory = inventorySnapshot.planDelivery(deliveries);
+        InventorySnapshot deliveredInventory = inventorySnapshot.planDelivery(purchasePlan.deliveries());
         if (deliveredInventory == null) {
             resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
@@ -231,12 +233,8 @@ public final class CommandShopSessions {
         if (offerDefinition.hasFiniteStock()) {
             updatedStock = Math.max(0, currentStock - amount);
             expectedOffer.setStock(updatedStock);
-            if (updatedStock < amount) {
-                sendFullSync(player, session, currentRuntimeData.shop());
-            } else {
-                sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), updatedStock);
-            }
         }
+        refreshSessionShop(player, session, currentRuntimeData.shop());
         syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
         ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
         TransactionAuditLogger.logBuySuccess(player, shop, offerDefinition, amount, totalPrice, bonusItems);
@@ -297,18 +295,19 @@ public final class CommandShopSessions {
             }
 
             ResourceLocation currentDimension = player.level().dimension().location();
-            if (!currentDimension.equals(entry.getValue().lastDimensionId()) || currentTick >= entry.getValue().nextRefreshTick()) {
+            if (currentTick >= entry.getValue().nextRefreshTick()
+                    || shouldRefreshForDimensionChange(player, entry.getValue(), currentDimension)) {
                 refreshPlayerSession(player);
             }
         }
     }
 
-    public static void cleanupPlayer(MinecraftServer server, UUID playerUuid) {
+    public static void cleanupPlayer(UUID playerUuid) {
         ACTIVE_SESSIONS.remove(playerUuid);
         PENDING_SHOP_OPENS.remove(playerUuid);
     }
 
-    public static void cleanupAll(MinecraftServer server) {
+    public static void cleanupAll() {
         ACTIVE_SESSIONS.clear();
         PENDING_SHOP_OPENS.clear();
     }
@@ -395,7 +394,7 @@ public final class CommandShopSessions {
     private static ShopDefinition resolveSessionShop(MinecraftServer server, ServerPlayer player, CommandShopSession session) {
         ShopDefinition shop = ShopRegistry.getShop(session.shopId());
         if (shop == null) {
-            cleanupPlayer(server, player.getUUID());
+            cleanupPlayer(player.getUUID());
             player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", session.shopId()));
             return null;
         }
@@ -405,7 +404,7 @@ public final class CommandShopSessions {
             return shop;
         }
 
-        cleanupPlayer(server, player.getUUID());
+        cleanupPlayer(player.getUUID());
         player.closeContainer();
         ShopFeedbackService.onShopDenied(player, accessResult.denialMessage());
         return null;
@@ -481,27 +480,42 @@ public final class CommandShopSessions {
         return Math.max(1L, (deltaMillis + 49L) / 50L);
     }
 
-    private static void appendDeliveryStacks(List<ItemStack> deliveries, ItemStack template, int amount) {
-        int remaining = Math.multiplyExact(template.getCount(), amount);
-        int maxStackSize = template.getMaxStackSize();
-        while (remaining > 0) {
-            int stackCount = Math.min(maxStackSize, remaining);
-            deliveries.add(template.copyWithCount(stackCount));
-            remaining -= stackCount;
+    private static boolean shouldRefreshForDimensionChange(ServerPlayer player, CommandShopSession session, ResourceLocation currentDimension) {
+        ResourceLocation previousDimension = session.lastDimensionId();
+        if (previousDimension == null || currentDimension.equals(previousDimension)) {
+            return false;
         }
+
+        ShopDefinition shop = ShopRegistry.getShop(session.shopId());
+        if (shop == null || shop.hasDimensionConditions()) {
+            return true;
+        }
+
+        return isViewingSessionBank(player, session) && ShopRegistry.getBankDefinition(session.shopId()).hasDimensionConditions();
     }
 
-    private static Offer getRuntimeOffer(Shop shop, int categoryIndex, int offerIndex) {
-        if (categoryIndex < 0 || categoryIndex >= shop.size()) {
-            return null;
+    private static PurchaseExecutionPlan buildPurchaseExecutionPlan(ResolvedShopOffer offerDefinition, Offer runtimeOffer, int amount) {
+        ArrayList<DeliveryRequest> deliveries = new ArrayList<>();
+        deliveries.add(new DeliveryRequest(runtimeOffer.getItem(), StackCountMath.multiplyToLong(runtimeOffer.getItem().getCount(), amount)));
+
+        ArrayList<ItemStack> bonusItems = new ArrayList<>();
+        for (PurchaseBonusDefinition purchaseBonus : offerDefinition.source().purchaseBonuses()) {
+            int multiplier = purchaseBonus.multiplierFor(amount);
+            if (multiplier <= 0) {
+                continue;
+            }
+
+            for (RewardStackDefinition reward : purchaseBonus.rewards()) {
+                long totalCount = StackCountMath.multiplyToLong(reward.template().getCount(), multiplier);
+                if (!StackCountMath.fitsInInt(totalCount)) {
+                    return null;
+                }
+                deliveries.add(new DeliveryRequest(reward.template(), totalCount));
+                bonusItems.add(reward.template().copyWithCount(StackCountMath.toIntExact(totalCount, "bonus reward count")));
+            }
         }
 
-        Category category = shop.get(categoryIndex);
-        if (offerIndex < 0 || offerIndex >= category.getOffers().size()) {
-            return null;
-        }
-
-        return category.getOffers().get(offerIndex);
+        return new PurchaseExecutionPlan(List.copyOf(deliveries), List.copyOf(bonusItems));
     }
 
     private static void sendFullSync(ServerPlayer player, CommandShopSession session, Shop runtimeShop) {
@@ -750,6 +764,15 @@ public final class CommandShopSessions {
         }
     }
 
+    private record PurchaseExecutionPlan(List<DeliveryRequest> deliveries, List<ItemStack> bonusItems) {
+    }
+
+    private record DeliveryRequest(ItemStack template, long totalCount) {
+        private DeliveryRequest {
+            template = template.copy();
+        }
+    }
+
     private record InventorySnapshot(List<ItemStack> items, List<ItemStack> armor, List<ItemStack> offhand, int selectedSlot) {
         private static InventorySnapshot capture(ServerPlayer player) {
             return capture(player.getInventory());
@@ -771,13 +794,13 @@ public final class CommandShopSessions {
             return new InventorySnapshot(List.copyOf(items), List.copyOf(armor), List.copyOf(offhand), inventory.selected);
         }
 
-        private InventorySnapshot planDelivery(List<ItemStack> deliveries) {
+        private InventorySnapshot planDelivery(List<DeliveryRequest> deliveries) {
             ArrayList<ItemStack> plannedItems = copyStacks(items);
             ArrayList<ItemStack> plannedArmor = copyStacks(armor);
             ArrayList<ItemStack> plannedOffhand = copyStacks(offhand);
 
-            for (ItemStack delivery : deliveries) {
-                if (!addDeliveryStack(delivery, plannedItems, plannedOffhand, selectedSlot)) {
+            for (DeliveryRequest delivery : deliveries) {
+                if (!addDeliveryStack(delivery.template(), delivery.totalCount(), plannedItems, plannedOffhand, selectedSlot)) {
                     return null;
                 }
             }
@@ -811,37 +834,37 @@ public final class CommandShopSessions {
             return copies;
         }
 
-        private static boolean addDeliveryStack(ItemStack delivery, List<ItemStack> items, List<ItemStack> offhand, int selectedSlot) {
-            if (delivery.isEmpty()) {
+        private static boolean addDeliveryStack(ItemStack template, long totalCount, List<ItemStack> items, List<ItemStack> offhand, int selectedSlot) {
+            if (template.isEmpty() || totalCount <= 0L) {
                 return true;
             }
 
-            ItemStack remaining = delivery.copy();
-            while (!remaining.isEmpty()) {
-                int previousCount = remaining.getCount();
-                remaining.setCount(addResourceAuto(items, offhand, selectedSlot, remaining));
-                if (!remaining.isEmpty() && remaining.getCount() >= previousCount) {
+            long remaining = totalCount;
+            while (remaining > 0L) {
+                long nextRemaining = addResourceAuto(items, offhand, selectedSlot, template, remaining);
+                if (nextRemaining >= remaining) {
                     return false;
                 }
+                remaining = nextRemaining;
             }
             return true;
         }
 
-        private static int addResourceAuto(List<ItemStack> items, List<ItemStack> offhand, int selectedSlot, ItemStack stack) {
-            int slot = getSlotWithRemainingSpace(items, offhand, selectedSlot, stack);
+        private static long addResourceAuto(List<ItemStack> items, List<ItemStack> offhand, int selectedSlot, ItemStack template, long remainingCount) {
+            int slot = getSlotWithRemainingSpace(items, offhand, selectedSlot, template);
             if (slot == -1) {
                 slot = getFreeSlot(items);
             }
             if (slot == -1) {
-                return stack.getCount();
+                return remainingCount;
             }
-            return addResource(items, offhand, slot, stack);
+            return addResource(items, offhand, slot, template, remainingCount);
         }
 
-        private static int addResource(List<ItemStack> items, List<ItemStack> offhand, int slot, ItemStack stack) {
+        private static long addResource(List<ItemStack> items, List<ItemStack> offhand, int slot, ItemStack template, long remainingCount) {
             ItemStack currentStack = slot == 40 ? offhand.get(0) : items.get(slot);
             if (currentStack.isEmpty()) {
-                currentStack = stack.copyWithCount(0);
+                currentStack = template.copyWithCount(0);
                 if (slot == 40) {
                     offhand.set(0, currentStack);
                 } else {
@@ -851,12 +874,12 @@ public final class CommandShopSessions {
 
             int spaceLeft = currentStack.getMaxStackSize() - currentStack.getCount();
             if (spaceLeft <= 0) {
-                return stack.getCount();
+                return remainingCount;
             }
 
-            int movedCount = Math.min(stack.getCount(), spaceLeft);
+            int movedCount = (int) Math.min(remainingCount, spaceLeft);
             currentStack.grow(movedCount);
-            return stack.getCount() - movedCount;
+            return remainingCount - movedCount;
         }
 
         private static int getSlotWithRemainingSpace(List<ItemStack> items, List<ItemStack> offhand, int selectedSlot, ItemStack stack) {
