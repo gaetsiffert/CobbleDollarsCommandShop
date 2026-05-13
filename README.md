@@ -34,17 +34,44 @@ It does not replace CobbleDollars, replace CobbleDollars NPCs, or move gameplay 
 
 ## Config
 
-Config files are loaded from:
+Runtime config files are loaded from:
 
 `config/cobbledollarscommandshops/`
 
-The detailed format reference is in:
+On first server start, the mod generates the default config tree:
+
+```text
+config/cobbledollarscommandshops/
+  CONFIG_GUIDE.md
+  feedback.json
+  global_bank.json
+  shops/
+    general_store/
+      shop.json
+    blacksmith/
+      shop.json
+    explorer/
+      shop.json
+    syntax_showcase/
+      shop.json
+      bank.json
+```
+
+The detailed format reference is generated at runtime in:
 
 `config/cobbledollarscommandshops/CONFIG_GUIDE.md`
 
 Transaction audit logs are written to:
 
 `logs/cobbledollarscommandshops/transactions.jsonl`
+
+## Benchmark Configs
+
+The repository also ships a standalone heavy benchmark pack in:
+
+`bench-configs/heavy_shop_bank/`
+
+It is intentionally kept out of the runtime config tree. Copy it into `config/cobbledollarscommandshops/shops/` only when you want to run manual performance tests.
 
 License terms are in the root `LICENSE` file and are also bundled into the built jar.
 

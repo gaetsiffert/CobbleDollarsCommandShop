@@ -692,8 +692,8 @@ public final class ClientUiState {
         int height = 12;
         int centeredX = screen.getX() + (BANK_SCREEN_WIDTH - width) / 2;
         int x = Math.max(PANEL_MARGIN, Math.min(centeredX, minecraft.getWindow().getGuiScaledWidth() - PANEL_MARGIN - width));
-        int preferredY = screen.getY() + BANK_SCREEN_HEIGHT + 4;
-        int y = Math.min(preferredY, minecraft.getWindow().getGuiScaledHeight() - PANEL_MARGIN - height);
+        int preferredY = screen.getY() - height - 4;
+        int y = Math.max(PANEL_MARGIN, preferredY);
         return new Rect(x, y, width, height);
     }
 

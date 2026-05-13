@@ -1,0 +1,2986 @@
+{
+  "conditions": {
+    "player_tags_none": [
+      "bench_bank_banned"
+    ]
+  },
+  "categories": [
+    {
+      "name": "Universal Catch-All",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "mod": "minecraft"
+              }
+            ]
+          },
+          "price": 1
+        }
+      ]
+    },
+    {
+      "name": "Exact Overrides",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:diamond"
+              }
+            ]
+          },
+          "price": 40,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:emerald"
+              }
+            ]
+          },
+          "price": 47
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:netherite_scrap"
+              }
+            ]
+          },
+          "price": 54
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:ancient_debris"
+              }
+            ]
+          },
+          "price": 61
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:echo_shard"
+              }
+            ]
+          },
+          "price": 68,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:ender_pearl"
+              }
+            ]
+          },
+          "price": 75
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:blaze_rod"
+              }
+            ]
+          },
+          "price": 82
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:ghast_tear"
+              }
+            ]
+          },
+          "price": 89
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:slime_ball"
+              }
+            ]
+          },
+          "price": 96,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:amethyst_shard"
+              }
+            ]
+          },
+          "price": 103
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:copper_ingot"
+              }
+            ]
+          },
+          "price": 110
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:iron_ingot"
+              }
+            ]
+          },
+          "price": 117
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:gold_ingot"
+              }
+            ]
+          },
+          "price": 124,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:lapis_lazuli"
+              }
+            ]
+          },
+          "price": 131
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:redstone"
+              }
+            ]
+          },
+          "price": 138
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:quartz"
+              }
+            ]
+          },
+          "price": 145
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:obsidian"
+              }
+            ]
+          },
+          "price": 152,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:crying_obsidian"
+              }
+            ]
+          },
+          "price": 159
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:glowstone_dust"
+              }
+            ]
+          },
+          "price": 166
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:prismarine_crystals"
+              }
+            ]
+          },
+          "price": 173
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:nautilus_shell"
+              }
+            ]
+          },
+          "price": 180,
+          "conditions": {
+            "dimensions_any": [
+              "minecraft:overworld"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:phantom_membrane"
+              }
+            ]
+          },
+          "price": 187
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:rabbit_foot"
+              }
+            ]
+          },
+          "price": 194
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "item": "minecraft:turtle_scute"
+              }
+            ]
+          },
+          "price": 201
+        }
+      ]
+    },
+    {
+      "name": "Tag Overrides",
+      "conditions": {
+        "dimensions_any": [
+          "minecraft:overworld"
+        ]
+      },
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:logs"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:oak_log"
+              },
+              {
+                "item": "minecraft:birch_log"
+              }
+            ]
+          },
+          "price": 6
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:planks"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:oak_planks"
+              },
+              {
+                "item": "minecraft:birch_planks"
+              }
+            ]
+          },
+          "price": 8
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:wool"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:white_wool"
+              },
+              {
+                "item": "minecraft:black_wool"
+              }
+            ]
+          },
+          "price": 10
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:leaves"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:oak_leaves"
+              },
+              {
+                "item": "minecraft:birch_leaves"
+              }
+            ]
+          },
+          "price": 12
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:saplings"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:oak_sapling"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "tag": "minecraft:flowers"
+              }
+            ],
+            "exclude": [
+              {
+                "item": "minecraft:dandelion"
+              }
+            ]
+          },
+          "price": 16
+        }
+      ]
+    },
+    {
+      "name": "Bench Tickets 01",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_001\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_002\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_003\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_004\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_005\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_006\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_007\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_008\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_009\"}]"
+              }
+            ]
+          },
+          "price": 22,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_009"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_010\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_011\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_012\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_013\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_014\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_015\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_016\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_017\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_018\"}]"
+              }
+            ]
+          },
+          "price": 31,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_018"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_019\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_020\"}]"
+              }
+            ]
+          },
+          "price": 33
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_021\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_022\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_023\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_024\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_025\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_026\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_027\"}]"
+              }
+            ]
+          },
+          "price": 20,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_027"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_028\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_029\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_030\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_031\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_032\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_033\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_034\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_035\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_036\"}]"
+              }
+            ]
+          },
+          "price": 29,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_036"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_037\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_038\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_039\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_040\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ]
+    },
+    {
+      "name": "Bench Tickets 02",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_041\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_042\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_043\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_044\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_045\"}]"
+              }
+            ]
+          },
+          "price": 18,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_045"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_046\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_047\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_048\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_049\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_050\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_051\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_052\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_053\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_054\"}]"
+              }
+            ]
+          },
+          "price": 27,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_054"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_055\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_056\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_057\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_058\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_059\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_060\"}]"
+              }
+            ]
+          },
+          "price": 33
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_061\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_062\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_063\"}]"
+              }
+            ]
+          },
+          "price": 16,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_063"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_064\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_065\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_066\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_067\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_068\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_069\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_070\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_071\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_072\"}]"
+              }
+            ]
+          },
+          "price": 25,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_072"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_073\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_074\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_075\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_076\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_077\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_078\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_079\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_080\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ],
+      "conditions": {
+        "dimensions_any": [
+          "minecraft:overworld"
+        ]
+      }
+    },
+    {
+      "name": "Bench Tickets 03",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_081\"}]"
+              }
+            ]
+          },
+          "price": 14,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_081"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_082\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_083\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_084\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_085\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_086\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_087\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_088\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_089\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_090\"}]"
+              }
+            ]
+          },
+          "price": 23,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_090"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_091\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_092\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_093\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_094\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_095\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_096\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_097\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_098\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_099\"}]"
+              }
+            ]
+          },
+          "price": 32,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_099"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_100\"}]"
+              }
+            ]
+          },
+          "price": 33
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_101\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_102\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_103\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_104\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_105\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_106\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_107\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_108\"}]"
+              }
+            ]
+          },
+          "price": 21,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_108"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_109\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_110\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_111\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_112\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_113\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_114\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_115\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_116\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_117\"}]"
+              }
+            ]
+          },
+          "price": 30,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_117"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_118\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_119\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_120\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ]
+    },
+    {
+      "name": "Bench Tickets 04",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_121\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_122\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_123\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_124\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_125\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_126\"}]"
+              }
+            ]
+          },
+          "price": 19,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_126"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_127\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_128\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_129\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_130\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_131\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_132\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_133\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_134\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_135\"}]"
+              }
+            ]
+          },
+          "price": 28,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_135"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_136\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_137\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_138\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_139\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_140\"}]"
+              }
+            ]
+          },
+          "price": 33
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_141\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_142\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_143\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_144\"}]"
+              }
+            ]
+          },
+          "price": 17,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_144"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_145\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_146\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_147\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_148\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_149\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_150\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_151\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_152\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_153\"}]"
+              }
+            ]
+          },
+          "price": 26,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_153"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_154\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_155\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_156\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_157\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_158\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_159\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_160\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ],
+      "conditions": {
+        "dimensions_any": [
+          "minecraft:overworld"
+        ]
+      }
+    },
+    {
+      "name": "Bench Tickets 05",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_161\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_162\"}]"
+              }
+            ]
+          },
+          "price": 15,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_162"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_163\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_164\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_165\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_166\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_167\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_168\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_169\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_170\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_171\"}]"
+              }
+            ]
+          },
+          "price": 24,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_171"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_172\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_173\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_174\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_175\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_176\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_177\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_178\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_179\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_180\"}]"
+              }
+            ]
+          },
+          "price": 33,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_180"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_181\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_182\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_183\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_184\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_185\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_186\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_187\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_188\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_189\"}]"
+              }
+            ]
+          },
+          "price": 22,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_189"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_190\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_191\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_192\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_193\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_194\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_195\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_196\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_197\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_198\"}]"
+              }
+            ]
+          },
+          "price": 31,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_198"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_199\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_200\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ]
+    },
+    {
+      "name": "Bench Tickets 06",
+      "offers": [
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_201\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_202\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_203\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_204\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_205\"}]"
+              }
+            ]
+          },
+          "price": 18
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_206\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_207\"}]"
+              }
+            ]
+          },
+          "price": 20,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_207"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_208\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_209\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_210\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_211\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_212\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_213\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_214\"}]"
+              }
+            ]
+          },
+          "price": 27
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_215\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_216\"}]"
+              }
+            ]
+          },
+          "price": 29,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_216"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_217\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_218\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_219\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_220\"}]"
+              }
+            ]
+          },
+          "price": 33
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_221\"}]"
+              }
+            ]
+          },
+          "price": 14
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_222\"}]"
+              }
+            ]
+          },
+          "price": 15
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_223\"}]"
+              }
+            ]
+          },
+          "price": 16
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_224\"}]"
+              }
+            ]
+          },
+          "price": 17
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_225\"}]"
+              }
+            ]
+          },
+          "price": 18,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_225"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_226\"}]"
+              }
+            ]
+          },
+          "price": 19
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_227\"}]"
+              }
+            ]
+          },
+          "price": 20
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_228\"}]"
+              }
+            ]
+          },
+          "price": 21
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_229\"}]"
+              }
+            ]
+          },
+          "price": 22
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_230\"}]"
+              }
+            ]
+          },
+          "price": 23
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_231\"}]"
+              }
+            ]
+          },
+          "price": 24
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_232\"}]"
+              }
+            ]
+          },
+          "price": 25
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_233\"}]"
+              }
+            ]
+          },
+          "price": 26
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_234\"}]"
+              }
+            ]
+          },
+          "price": 27,
+          "conditions": {
+            "player_tags_none": [
+              "bench_bank_hide_bank_ticket_234"
+            ]
+          }
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:paper[custom_data={bench_bank:\"bank_ticket_235\"}]"
+              }
+            ]
+          },
+          "price": 28
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:book[custom_data={bench_bank:\"bank_ticket_236\"}]"
+              }
+            ]
+          },
+          "price": 29
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:name_tag[custom_data={bench_bank:\"bank_ticket_237\"}]"
+              }
+            ]
+          },
+          "price": 30
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:map[custom_data={bench_bank:\"bank_ticket_238\"}]"
+              }
+            ]
+          },
+          "price": 31
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:compass[custom_data={bench_bank:\"bank_ticket_239\"}]"
+              }
+            ]
+          },
+          "price": 32
+        },
+        {
+          "match": {
+            "include": [
+              {
+                "stack": "minecraft:clock[custom_data={bench_bank:\"bank_ticket_240\"}]"
+              }
+            ]
+          },
+          "price": 33
+        }
+      ],
+      "conditions": {
+        "dimensions_any": [
+          "minecraft:overworld"
+        ]
+      }
+    }
+  ]
+}
