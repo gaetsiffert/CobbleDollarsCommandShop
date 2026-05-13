@@ -151,7 +151,64 @@ public final class ShopFiles {
         }
 
         ConditionSet conditions = ConditionSet.readOptional(offerObject, context);
-        return new ShopOfferDefinition(offerId, match, count, price, stock, restockRule, conditions);
+        List<PurchaseBonusDefinition> purchaseBonuses = readPurchaseBonuses(offerObject, provider, context);
+        if (stock >= 0) {
+            for (PurchaseBonusDefinition purchaseBonus : purchaseBonuses) {
+                if (purchaseBonus.requiredBundles() > stock) {
+                    throw new IOException(
+                            "Field 'purchase_bonuses.required_bundles' in " + context
+                                    + " cannot be greater than finite stock " + stock + "."
+                    );
+                }
+            }
+        }
+        return new ShopOfferDefinition(offerId, match, count, price, stock, restockRule, conditions, purchaseBonuses);
+    }
+
+    private static List<PurchaseBonusDefinition> readPurchaseBonuses(JsonObject offerObject, HolderLookup.Provider provider, String context) throws IOException {
+        JsonElement purchaseBonusesElement = offerObject.get("purchase_bonuses");
+        if (purchaseBonusesElement == null || purchaseBonusesElement.isJsonNull()) {
+            return List.of();
+        }
+        if (!purchaseBonusesElement.isJsonArray()) {
+            throw new IOException("Field 'purchase_bonuses' in " + context + " must be an array.");
+        }
+
+        JsonArray bonusesArray = purchaseBonusesElement.getAsJsonArray();
+        ArrayList<PurchaseBonusDefinition> bonuses = new ArrayList<>(bonusesArray.size());
+        for (int index = 0; index < bonusesArray.size(); index++) {
+            JsonElement bonusElement = bonusesArray.get(index);
+            if (!bonusElement.isJsonObject()) {
+                throw new IOException("Each entry in 'purchase_bonuses' of " + context + " must be an object.");
+            }
+
+            JsonObject bonusObject = bonusElement.getAsJsonObject();
+            String bonusContext = context + ", purchase_bonuses[" + index + "]";
+            int requiredBundles = ConfigParsing.readInt(bonusObject, "required_bundles", 0, bonusContext);
+            if (requiredBundles <= 0) {
+                throw new IOException("Field 'required_bundles' in " + bonusContext + " must be greater than 0.");
+            }
+
+            JsonArray rewardsArray = ConfigParsing.readRequiredArray(bonusObject, "rewards", bonusContext);
+            if (rewardsArray.isEmpty()) {
+                throw new IOException("Field 'rewards' in " + bonusContext + " cannot be empty.");
+            }
+
+            ArrayList<RewardStackDefinition> rewards = new ArrayList<>(rewardsArray.size());
+            for (int rewardIndex = 0; rewardIndex < rewardsArray.size(); rewardIndex++) {
+                JsonElement rewardElement = rewardsArray.get(rewardIndex);
+                if (!rewardElement.isJsonObject()) {
+                    throw new IOException("Each reward in " + bonusContext + " must be an object.");
+                }
+                rewards.add(RewardStackDefinition.parse(
+                        rewardElement.getAsJsonObject(),
+                        provider,
+                        bonusContext + ", rewards[" + rewardIndex + "]"
+                ));
+            }
+            bonuses.add(new PurchaseBonusDefinition(requiredBundles, rewards));
+        }
+        return List.copyOf(bonuses);
     }
 
     private static RestockRule readRestockRule(JsonObject object, String context) throws IOException {
@@ -226,16 +283,16 @@ public final class ShopFiles {
 
     private static ShopDefinition createGeneralStoreShop() {
         List<ShopOfferDefinition> foodOffers = List.of(
-                new ShopOfferDefinition("bread_bundle", exactItemMatch(Items.BREAD, "minecraft:bread"), 6, BigInteger.valueOf(24L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("cooked_beef", exactItemMatch(Items.COOKED_BEEF, "minecraft:cooked_beef"), 8, BigInteger.valueOf(48L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("bread_bundle", exactItemMatch(Items.BREAD, "minecraft:bread"), 6, BigInteger.valueOf(24L), -1, null, ConditionSet.NONE, List.of()),
+                new ShopOfferDefinition("cooked_beef", exactItemMatch(Items.COOKED_BEEF, "minecraft:cooked_beef"), 8, BigInteger.valueOf(48L), -1, null, ConditionSet.NONE, List.of()),
                 new ShopOfferDefinition("golden_apple", exactItemMatch(Items.GOLDEN_APPLE, "minecraft:golden_apple"), 1, BigInteger.valueOf(140L), 3,
-                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
+                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE, List.of())
         );
         List<ShopOfferDefinition> utilityOffers = List.of(
-                new ShopOfferDefinition("torch_stack", exactItemMatch(Items.TORCH, "minecraft:torch"), 32, BigInteger.valueOf(18L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("oak_logs", exactItemMatch(Items.OAK_LOG, "minecraft:oak_log"), 16, BigInteger.valueOf(30L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("torch_stack", exactItemMatch(Items.TORCH, "minecraft:torch"), 32, BigInteger.valueOf(18L), -1, null, ConditionSet.NONE, List.of()),
+                new ShopOfferDefinition("oak_logs", exactItemMatch(Items.OAK_LOG, "minecraft:oak_log"), 16, BigInteger.valueOf(30L), -1, null, ConditionSet.NONE, List.of()),
                 new ShopOfferDefinition("ender_pearl_pair", exactItemMatch(Items.ENDER_PEARL, "minecraft:ender_pearl"), 2, BigInteger.valueOf(90L), 6,
-                        new RestockRule.IntervalRestockRule(1, 300L), ConditionSet.NONE)
+                        new RestockRule.IntervalRestockRule(1, 300L), ConditionSet.NONE, List.of())
         );
         List<ShopCategoryDefinition> categories = List.of(
                 new ShopCategoryDefinition("Food", foodOffers, ConditionSet.NONE),
@@ -246,14 +303,14 @@ public final class ShopFiles {
 
     private static ShopDefinition createBlacksmithShop() {
         List<ShopOfferDefinition> weaponOffers = List.of(
-                new ShopOfferDefinition("iron_sword", exactItemMatch(Items.IRON_SWORD, "minecraft:iron_sword"), 1, BigInteger.valueOf(90L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("iron_sword", exactItemMatch(Items.IRON_SWORD, "minecraft:iron_sword"), 1, BigInteger.valueOf(90L), -1, null, ConditionSet.NONE, List.of()),
                 new ShopOfferDefinition("crossbow", exactItemMatch(Items.CROSSBOW, "minecraft:crossbow"), 1, BigInteger.valueOf(120L), 4,
-                        new RestockRule.IntervalRestockRule(1, 900L), ConditionSet.NONE)
+                        new RestockRule.IntervalRestockRule(1, 900L), ConditionSet.NONE, List.of())
         );
         List<ShopOfferDefinition> toolOffers = List.of(
-                new ShopOfferDefinition("iron_pickaxe", exactItemMatch(Items.IRON_PICKAXE, "minecraft:iron_pickaxe"), 1, BigInteger.valueOf(110L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("iron_pickaxe", exactItemMatch(Items.IRON_PICKAXE, "minecraft:iron_pickaxe"), 1, BigInteger.valueOf(110L), -1, null, ConditionSet.NONE, List.of()),
                 new ShopOfferDefinition("diamond_pickaxe", exactItemMatch(Items.DIAMOND_PICKAXE, "minecraft:diamond_pickaxe"), 1, BigInteger.valueOf(450L), 2,
-                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE)
+                        new RestockRule.DailyRestockRule(4, 0, ZoneId.systemDefault().getId()), ConditionSet.NONE, List.of())
         );
         List<ShopCategoryDefinition> categories = List.of(
                 new ShopCategoryDefinition("Weapons", weaponOffers, ConditionSet.NONE),
@@ -264,15 +321,15 @@ public final class ShopFiles {
 
     private static ShopDefinition createExplorerShop() {
         List<ShopOfferDefinition> travelOffers = List.of(
-                new ShopOfferDefinition("compass", exactItemMatch(Items.COMPASS, "minecraft:compass"), 1, BigInteger.valueOf(60L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("map_bundle", exactItemMatch(Items.MAP, "minecraft:map"), 3, BigInteger.valueOf(45L), -1, null, ConditionSet.NONE),
-                new ShopOfferDefinition("boat", exactItemMatch(Items.OAK_BOAT, "minecraft:oak_boat"), 1, BigInteger.valueOf(35L), -1, null, ConditionSet.NONE)
+                new ShopOfferDefinition("compass", exactItemMatch(Items.COMPASS, "minecraft:compass"), 1, BigInteger.valueOf(60L), -1, null, ConditionSet.NONE, List.of()),
+                new ShopOfferDefinition("map_bundle", exactItemMatch(Items.MAP, "minecraft:map"), 3, BigInteger.valueOf(45L), -1, null, ConditionSet.NONE, List.of()),
+                new ShopOfferDefinition("boat", exactItemMatch(Items.OAK_BOAT, "minecraft:oak_boat"), 1, BigInteger.valueOf(35L), -1, null, ConditionSet.NONE, List.of())
         );
         List<ShopOfferDefinition> supplyOffers = List.of(
-                new ShopOfferDefinition("arrow_stack", exactItemMatch(Items.ARROW, "minecraft:arrow"), 32, BigInteger.valueOf(40L), -1, null, ConditionSet.NONE),
+                new ShopOfferDefinition("arrow_stack", exactItemMatch(Items.ARROW, "minecraft:arrow"), 32, BigInteger.valueOf(40L), -1, null, ConditionSet.NONE, List.of()),
                 new ShopOfferDefinition("lead_pair", exactItemMatch(Items.LEAD, "minecraft:lead"), 2, BigInteger.valueOf(70L), 5,
-                        new RestockRule.IntervalRestockRule(1, 600L), ConditionSet.NONE),
-                new ShopOfferDefinition("water_bucket", exactItemMatch(Items.WATER_BUCKET, "minecraft:water_bucket"), 1, BigInteger.valueOf(55L), -1, null, ConditionSet.NONE)
+                        new RestockRule.IntervalRestockRule(1, 600L), ConditionSet.NONE, List.of()),
+                new ShopOfferDefinition("water_bucket", exactItemMatch(Items.WATER_BUCKET, "minecraft:water_bucket"), 1, BigInteger.valueOf(55L), -1, null, ConditionSet.NONE, List.of())
         );
         List<ShopCategoryDefinition> categories = List.of(
                 new ShopCategoryDefinition("Travel", travelOffers, ConditionSet.NONE),
@@ -304,6 +361,13 @@ public final class ShopFiles {
                     offerObject.addProperty("stock", offer.stock());
                 }
                 ConditionSet.writeOptional(offerObject, offer.conditions());
+                if (!offer.purchaseBonuses().isEmpty()) {
+                    JsonArray bonusArray = new JsonArray();
+                    for (PurchaseBonusDefinition purchaseBonus : offer.purchaseBonuses()) {
+                        bonusArray.add(purchaseBonus.toJson());
+                    }
+                    offerObject.add("purchase_bonuses", bonusArray);
+                }
                 if (offer.restockRule() instanceof RestockRule.IntervalRestockRule intervalRule) {
                     JsonObject restockObject = new JsonObject();
                     restockObject.addProperty("type", intervalRule.type());
@@ -380,7 +444,15 @@ public final class ShopFiles {
                           },
                           "count": 1,
                           "price": 250,
-                          "stock": 2,
+                          "purchase_bonuses": [
+                            {
+                              "required_bundles": 10,
+                              "rewards": [
+                                { "item": "minecraft:gold_nugget", "count": 1 }
+                              ]
+                            }
+                          ],
+                          "stock": 12,
                           "restock": {
                             "type": "interval",
                             "amount": 1,

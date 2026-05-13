@@ -7,7 +7,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import net.minecraft.network.chat.Component;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
 
@@ -55,6 +57,17 @@ public final class ShopRegistry {
 
     public static List<String> listShopIds() {
         return state.shops().keySet().stream().sorted().toList();
+    }
+
+    public static ShopAccessResult evaluateAccess(MinecraftServer server, ShopDefinition shop, ServerPlayer player) {
+        ShopVisibilityData.VisibilityStatus visibilityStatus = ShopVisibilityData.get(server).status(shop.id());
+        if (!visibilityStatus.enabled()) {
+            return ShopAccessResult.deny(visibilityStatus.denialMessage(shop.id()));
+        }
+        if (!shop.isAccessibleBy(player)) {
+            return ShopAccessResult.deny(defaultDenyMessage(shop));
+        }
+        return ShopAccessResult.allow();
     }
 
     public static Path getShopDirectory() {
@@ -106,9 +119,26 @@ public final class ShopRegistry {
     public record ReloadSummary(int shopCount, int localBankCount, Path globalBankFile) {
     }
 
+    public record ShopAccessResult(boolean allowed, Component denialMessage) {
+        private static ShopAccessResult allow() {
+            return new ShopAccessResult(true, null);
+        }
+
+        private static ShopAccessResult deny(Component denialMessage) {
+            return new ShopAccessResult(false, denialMessage);
+        }
+    }
+
     private record RegistryState(Map<String, ShopDefinition> shops, Map<String, BankDefinition> shopBanks, BankDefinition globalBank) {
         private static RegistryState empty() {
             return new RegistryState(Map.of(), Map.of(), new BankDefinition(List.of(), ConditionSet.NONE, BankFiles.getGlobalBankFile()));
         }
+    }
+
+    private static Component defaultDenyMessage(ShopDefinition shop) {
+        if (shop.denyMessage() == null || shop.denyMessage().isBlank()) {
+            return Component.translatable("cobbledollarscommandshops.feedback.shop_denied.default");
+        }
+        return Component.literal(shop.denyMessage());
     }
 }

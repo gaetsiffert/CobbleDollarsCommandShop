@@ -19,6 +19,8 @@ import fr.cobbledollars.commandshops.shop.ResolvedShopOffer;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopOfferDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
+import fr.cobbledollars.commandshops.shop.ShopVisibilityData;
+import fr.cobbledollars.commandshops.shop.TransactionAuditLogger;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -81,6 +83,29 @@ public final class CommandShopCommands {
                                                 context.getSource(),
                                                 StringArgumentType.getString(context, "shop"),
                                                 EntityArgument.getPlayer(context, "target"))))))
+                .then(Commands.literal("visibility")
+                        .then(Commands.literal("list")
+                                .executes(context -> listVisibility(context.getSource())))
+                        .then(Commands.argument("shop", StringArgumentType.word())
+                                .suggests(CommandShopCommands::suggestShopIds)
+                                .then(Commands.literal("enable")
+                                        .executes(context -> enableVisibility(
+                                                context.getSource(),
+                                                StringArgumentType.getString(context, "shop"))))
+                                .then(Commands.literal("disable")
+                                        .executes(context -> disableVisibility(
+                                                context.getSource(),
+                                                StringArgumentType.getString(context, "shop"),
+                                                null))
+                                        .then(Commands.argument("message", StringArgumentType.greedyString())
+                                                .executes(context -> disableVisibility(
+                                                        context.getSource(),
+                                                        StringArgumentType.getString(context, "shop"),
+                                                        StringArgumentType.getString(context, "message")))))
+                                .then(Commands.literal("status")
+                                        .executes(context -> showVisibilityStatus(
+                                                context.getSource(),
+                                                StringArgumentType.getString(context, "shop"))))))
                 .then(Commands.literal("list")
                         .executes(context -> listShops(context.getSource())))
                 .then(Commands.literal("where")
@@ -103,6 +128,10 @@ public final class CommandShopCommands {
 
     private static int openForTargets(CommandSourceStack source, String shopId, Collection<ServerPlayer> targets) throws CommandSyntaxException {
         ShopDefinition shop = loadShop(shopId);
+        ShopVisibilityData.VisibilityStatus visibilityStatus = ShopVisibilityData.get(source.getServer()).status(shop.id());
+        if (!visibilityStatus.enabled()) {
+            throw SHOP_ERROR.create(visibilityStatus.denialMessage(shop.id()));
+        }
         for (ServerPlayer target : targets) {
             CommandShopSessions.queueOpenShop(target, shop);
         }
@@ -219,6 +248,67 @@ public final class CommandShopCommands {
 
         source.sendSuccess(() -> message, false);
         return 1;
+    }
+
+    private static int enableVisibility(CommandSourceStack source, String shopId) throws CommandSyntaxException {
+        ShopDefinition shop = loadShop(shopId);
+        ShopVisibilityData.get(source.getServer()).enable(shop.id());
+        TransactionAuditLogger.logVisibilityChanged(shop.id(), true, null, source.getTextName(), source.getEntity() == null ? null : source.getEntity().getStringUUID());
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.enable.success", shop.id()), true);
+        return 1;
+    }
+
+    private static int disableVisibility(CommandSourceStack source, String shopId, String message) throws CommandSyntaxException {
+        ShopDefinition shop = loadShop(shopId);
+        ShopVisibilityData.VisibilityStatus status = ShopVisibilityData.get(source.getServer()).disable(
+                shop.id(),
+                message,
+                source.getTextName(),
+                System.currentTimeMillis()
+        );
+        CommandShopSessions.closeShopSessions(source.getServer(), shop.id(), status.denialMessage(shop.id()));
+        TransactionAuditLogger.logVisibilityChanged(shop.id(), false, status.message(), source.getTextName(), source.getEntity() == null ? null : source.getEntity().getStringUUID());
+        if (status.message() == null) {
+            source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.disable.success", shop.id()), true);
+        } else {
+            source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.disable.success_with_message", shop.id(), status.message()), true);
+        }
+        return 1;
+    }
+
+    private static int showVisibilityStatus(CommandSourceStack source, String shopId) throws CommandSyntaxException {
+        ShopDefinition shop = loadShop(shopId);
+        ShopVisibilityData.VisibilityStatus status = ShopVisibilityData.get(source.getServer()).status(shop.id());
+        if (status.enabled()) {
+            source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.status.enabled", shop.id()), false);
+        } else if (status.message() == null) {
+            source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.status.disabled", shop.id()), false);
+        } else {
+            source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.status.disabled_with_message", shop.id(), status.message()), false);
+        }
+        return 1;
+    }
+
+    private static int listVisibility(CommandSourceStack source) {
+        List<String> shopIds = ShopRegistry.listShopIds();
+        if (shopIds.isEmpty()) {
+            source.sendFailure(Component.translatable("cobbledollarscommandshops.command.list.none", String.valueOf(ShopRegistry.getShopDirectory())));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.list.header", shopIds.size()), false);
+        ShopVisibilityData visibilityData = ShopVisibilityData.get(source.getServer());
+        for (String shopId : shopIds) {
+            ShopVisibilityData.VisibilityStatus status = visibilityData.status(shopId);
+            if (status.enabled()) {
+                source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.list.entry.enabled", shopId), false);
+            } else if (status.message() == null) {
+                source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.list.entry.disabled", shopId), false);
+            } else {
+                source.sendSuccess(() -> Component.translatable("cobbledollarscommandshops.command.visibility.list.entry.disabled_with_message", shopId, status.message()), false);
+            }
+        }
+        return shopIds.size();
     }
 
     private static int listShops(CommandSourceStack source) {

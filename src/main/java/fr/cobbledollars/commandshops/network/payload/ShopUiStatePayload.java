@@ -47,7 +47,19 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
         return offers;
     }
 
-    public record OfferState(int categoryIndex, int offerIndex, int stock, long nextRestockAtMillis, int nextRestockAmount, String restockZoneId) {
+    public record OfferState(
+            int categoryIndex,
+            int offerIndex,
+            int stock,
+            long nextRestockAtMillis,
+            int nextRestockAmount,
+            String restockZoneId,
+            List<BonusState> bonuses
+    ) {
+        public OfferState {
+            bonuses = List.copyOf(bonuses);
+        }
+
         private OfferState(RegistryFriendlyByteBuf buffer) {
             this(
                     ByteBufCodecs.VAR_INT.decode(buffer),
@@ -55,7 +67,8 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
                     ByteBufCodecs.VAR_INT.decode(buffer),
                     ByteBufCodecs.VAR_LONG.decode(buffer),
                     ByteBufCodecs.VAR_INT.decode(buffer),
-                    decodeZoneId(buffer)
+                    decodeZoneId(buffer),
+                    readBonuses(buffer)
             );
         }
 
@@ -66,6 +79,7 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
             ByteBufCodecs.VAR_LONG.encode(buffer, nextRestockAtMillis);
             ByteBufCodecs.VAR_INT.encode(buffer, nextRestockAmount);
             ByteBufCodecs.STRING_UTF8.encode(buffer, restockZoneId == null ? "" : restockZoneId);
+            writeBonuses(buffer, bonuses);
         }
 
         public boolean hasNextRestock() {
@@ -75,6 +89,63 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
         private static String decodeZoneId(RegistryFriendlyByteBuf buffer) {
             String zoneId = ByteBufCodecs.STRING_UTF8.decode(buffer);
             return zoneId.isEmpty() ? null : zoneId;
+        }
+
+        private static List<BonusState> readBonuses(RegistryFriendlyByteBuf buffer) {
+            int size = ByteBufCodecs.VAR_INT.decode(buffer);
+            ArrayList<BonusState> bonuses = new ArrayList<>(size);
+            for (int index = 0; index < size; index++) {
+                bonuses.add(new BonusState(buffer));
+            }
+            return bonuses;
+        }
+
+        private static void writeBonuses(RegistryFriendlyByteBuf buffer, List<BonusState> bonuses) {
+            ByteBufCodecs.VAR_INT.encode(buffer, bonuses.size());
+            for (BonusState bonus : bonuses) {
+                bonus.write(buffer);
+            }
+        }
+    }
+
+    public record BonusState(int requiredBundles, List<RewardState> rewards) {
+        public BonusState {
+            rewards = List.copyOf(rewards);
+        }
+
+        private BonusState(RegistryFriendlyByteBuf buffer) {
+            this(ByteBufCodecs.VAR_INT.decode(buffer), readRewards(buffer));
+        }
+
+        private void write(RegistryFriendlyByteBuf buffer) {
+            ByteBufCodecs.VAR_INT.encode(buffer, requiredBundles);
+            ByteBufCodecs.VAR_INT.encode(buffer, rewards.size());
+            for (RewardState reward : rewards) {
+                reward.write(buffer);
+            }
+        }
+
+        private static List<RewardState> readRewards(RegistryFriendlyByteBuf buffer) {
+            int size = ByteBufCodecs.VAR_INT.decode(buffer);
+            ArrayList<RewardState> rewards = new ArrayList<>(size);
+            for (int index = 0; index < size; index++) {
+                rewards.add(new RewardState(buffer));
+            }
+            return rewards;
+        }
+    }
+
+    public record RewardState(net.minecraft.world.item.ItemStack stack) {
+        public RewardState {
+            stack = stack.copy();
+        }
+
+        private RewardState(RegistryFriendlyByteBuf buffer) {
+            this(net.minecraft.world.item.ItemStack.STREAM_CODEC.decode(buffer));
+        }
+
+        private void write(RegistryFriendlyByteBuf buffer) {
+            net.minecraft.world.item.ItemStack.STREAM_CODEC.encode(buffer, stack);
         }
     }
 }

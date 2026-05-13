@@ -61,6 +61,10 @@ public final class ConfigGuideFiles {
                 - `/cdshops restock <shop> all <players>`
                 - `/cdshops restock <shop> offer <offer> <players>`
                 - `/cdshops stock <shop> <player>`
+                - `/cdshops visibility list`
+                - `/cdshops visibility <shop> status`
+                - `/cdshops visibility <shop> enable`
+                - `/cdshops visibility <shop> disable [message]`
                 - `/cdshops list`
                 - `/cdshops where`
 
@@ -122,10 +126,30 @@ public final class ConfigGuideFiles {
                 - `offers[].price`: CobbleDollars price
                 - `offers[].stock`: maximum stock, omit or use `-1` for unlimited
                 - `offers[].restock`: optional restock rule
+                - `offers[].purchase_bonuses`: optional bonuses granted only when enough bundles are bought in one transaction
                 - `offers[].conditions`: optional conditions for a single offer
 
                 The CobbleDollars amount selector buys multiple copies of the offer.  
                 Example: if an offer uses `count: 32` for arrows and the player buys amount `2`, they receive `64` arrows.
+
+                Purchase bonus example:
+
+                ```json
+                {
+                  "purchase_bonuses": [
+                    {
+                      "required_bundles": 10,
+                      "rewards": [
+                        { "item": "minecraft:gold_nugget", "count": 1 }
+                      ]
+                    }
+                  ]
+                }
+                ```
+
+                In that example, the reward is granted only when the player buys `10` bundles in one purchase.
+                Buying `5` and then `5` does not trigger the bonus.
+                If an offer has finite stock, `required_bundles` cannot be greater than that stock.
 
                 ## Bank File
 
@@ -442,6 +466,7 @@ public final class ConfigGuideFiles {
                 - multiple `exclude`
                 - fallback override
                 - strict override
+                - purchase bonuses with `required_bundles`
                 - every condition type: `player_tags_all`, `player_tags_any`, `player_tags_none`, `advancements_all`, `advancements_any`, `dimensions_any`, `time_ranges_any`, `scores_all`
                 - shop / category / offer conditions
                 - local bank override
@@ -519,6 +544,8 @@ public final class ConfigGuideFiles {
                 - Exact `stack` matching includes data components.
                 - `mod` matches item registry namespaces.
                 - `match.exclude` only removes items from the current rule. A later rule can reintroduce them.
+                - Shop visibility overrides are stored server-side and controlled with `/cdshops visibility ...`.
+                - Successful buys, sells, and visibility changes are appended to `logs/cobbledollarscommandshops/transactions.jsonl`.
                 - License terms are in the root `LICENSE` file and are bundled into the built jar.
                 """;
     }

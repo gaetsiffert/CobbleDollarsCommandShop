@@ -12,7 +12,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 @EventBusSubscriber(modid = CobbleDollarsCommandShopsMod.MODID)
 public final class CommandShopPayloads {
-    private static final String NETWORK_VERSION = "1";
+    private static final String NETWORK_VERSION = "2";
 
     private CommandShopPayloads() {
     }

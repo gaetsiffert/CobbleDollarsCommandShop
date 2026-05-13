@@ -35,6 +35,10 @@ public final class ShopFeedbackService {
         emit(player, config.shopDenied(), FeedbackFormatter.shopDenied(shop), FAILURE_COLOR, 3200);
     }
 
+    public static void onShopDenied(ServerPlayer player, Component message) {
+        emit(player, config.shopDenied(), message, FAILURE_COLOR, 3200);
+    }
+
     public static void onBuySuccess(
             ServerPlayer player,
             ItemStack bundleTemplate,

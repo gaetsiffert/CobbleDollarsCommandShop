@@ -18,8 +18,18 @@ public final class ShopOfferDefinition {
     private final int stock;
     private final RestockRule restockRule;
     private final ConditionSet conditions;
+    private final List<PurchaseBonusDefinition> purchaseBonuses;
 
-    public ShopOfferDefinition(String id, ItemMatchExpression match, int count, BigInteger price, int stock, RestockRule restockRule, ConditionSet conditions) {
+    public ShopOfferDefinition(
+            String id,
+            ItemMatchExpression match,
+            int count,
+            BigInteger price,
+            int stock,
+            RestockRule restockRule,
+            ConditionSet conditions,
+            List<PurchaseBonusDefinition> purchaseBonuses
+    ) {
         this.id = id;
         this.match = match;
         this.count = count;
@@ -27,6 +37,14 @@ public final class ShopOfferDefinition {
         this.stock = stock;
         this.restockRule = restockRule;
         this.conditions = conditions == null ? ConditionSet.NONE : conditions;
+        this.purchaseBonuses = purchaseBonuses == null ? List.of() : List.copyOf(purchaseBonuses);
+        if (stock >= 0) {
+            for (PurchaseBonusDefinition purchaseBonus : this.purchaseBonuses) {
+                if (purchaseBonus.requiredBundles() > stock) {
+                    throw new IllegalArgumentException("Purchase bonus threshold " + purchaseBonus.requiredBundles() + " exceeds finite stock " + stock + " for offer '" + id + "'.");
+                }
+            }
+        }
     }
 
     public String id() {
@@ -57,6 +75,10 @@ public final class ShopOfferDefinition {
         return conditions;
     }
 
+    public List<PurchaseBonusDefinition> purchaseBonuses() {
+        return purchaseBonuses;
+    }
+
     public boolean hasFiniteStock() {
         return stock >= 0;
     }
@@ -67,6 +89,18 @@ public final class ShopOfferDefinition {
 
     public boolean isVisibleTo(ServerPlayer player) {
         return conditions.test(player);
+    }
+
+    public List<ItemStack> createBonusRewardStacks(int purchasedBundles) {
+        if (purchaseBonuses.isEmpty() || purchasedBundles <= 0) {
+            return List.of();
+        }
+
+        ArrayList<ItemStack> rewardStacks = new ArrayList<>();
+        for (PurchaseBonusDefinition purchaseBonus : purchaseBonuses) {
+            rewardStacks.addAll(purchaseBonus.createRewardStacks(purchasedBundles));
+        }
+        return List.copyOf(rewardStacks);
     }
 
     public ItemStack createItemStack() {

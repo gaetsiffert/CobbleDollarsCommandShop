@@ -11,7 +11,10 @@ public final class FeedbackFormatter {
     }
 
     public static Component shopDenied(ShopDefinition shop) {
-        String denyMessage = shop.denyMessage();
+        return shopDenied(shop.denyMessage());
+    }
+
+    public static Component shopDenied(String denyMessage) {
         if (denyMessage == null || denyMessage.isBlank()) {
             return Component.translatable("cobbledollarscommandshops.feedback.shop_denied.default");
         }

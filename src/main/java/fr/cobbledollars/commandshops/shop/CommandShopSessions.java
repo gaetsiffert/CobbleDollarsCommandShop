@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,8 +49,9 @@ public final class CommandShopSessions {
         if (server == null) {
             throw new IllegalStateException("Player is not attached to a server.");
         }
-        if (!shop.isAccessibleBy(player)) {
-            ShopFeedbackService.onShopDenied(player, shop);
+        ShopRegistry.ShopAccessResult accessResult = ShopRegistry.evaluateAccess(server, shop, player);
+        if (!accessResult.allowed()) {
+            ShopFeedbackService.onShopDenied(player, accessResult.denialMessage());
             throw new IllegalStateException("Player does not meet the conditions for shop '" + shop.id() + "'.");
         }
 
@@ -181,13 +183,6 @@ public final class CommandShopSessions {
             return true;
         }
         int amount = requestedAmount;
-        int bundleSize = Math.max(1, expectedOffer.getItem().getCount());
-        int maxBundleAmount = PlayerExtensionKt.getMaxAmountObtainable(player, expectedOffer.getItem()) / bundleSize;
-        if (maxBundleAmount <= 0) {
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
-            return true;
-        }
-        amount = Math.min(amount, Math.max(0, maxBundleAmount));
 
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
@@ -196,10 +191,8 @@ public final class CommandShopSessions {
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
-        if (currentStock > 0) {
-            amount = Math.min(amount, currentStock);
-        }
-        if (amount <= 0) {
+        if (currentStock > 0 && amount > currentStock) {
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
 
@@ -210,22 +203,45 @@ public final class CommandShopSessions {
             return true;
         }
 
+        List<ItemStack> bonusItems = offerDefinition.source().createBonusRewardStacks(amount);
+        ArrayList<ItemStack> deliveries = new ArrayList<>();
+        appendDeliveryStacks(deliveries, expectedOffer.getItem(), amount);
+        for (ItemStack bonusItem : bonusItems) {
+            appendDeliveryStacks(deliveries, bonusItem, 1);
+        }
+        if (!canFitAllDeliveries(player, deliveries)) {
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
+            return true;
+        }
+
+        InventorySnapshot inventorySnapshot = InventorySnapshot.capture(player);
+        if (!deliverAllItems(player, deliveries)) {
+            inventorySnapshot.restore(player);
+            player.containerMenu.broadcastChanges();
+            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
+            return true;
+        }
+
         if (offerDefinition.hasFiniteStock()) {
             stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
         }
 
         PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
-        giveOfferItems(player, expectedOffer.getItem(), amount);
         player.containerMenu.broadcastChanges();
 
         int updatedStock = -1;
         if (offerDefinition.hasFiniteStock()) {
             updatedStock = Math.max(0, currentStock - amount);
             expectedOffer.setStock(updatedStock);
-            sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), updatedStock);
+            if (updatedStock < amount) {
+                sendFullSync(player, session, currentRuntimeData.shop());
+            } else {
+                sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), updatedStock);
+            }
         }
         syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
         ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
+        TransactionAuditLogger.logBuySuccess(player, shop, offerDefinition, amount, totalPrice, bonusItems);
         updateSessionRefreshState(server, player, session, shop);
         return true;
     }
@@ -299,6 +315,32 @@ public final class CommandShopSessions {
         PENDING_SHOP_OPENS.clear();
     }
 
+    public static void closeShopSessions(MinecraftServer server, String shopId, Component denialMessage) {
+        String normalizedShopId = ShopFiles.normalizeId(shopId, "shop id");
+        Iterator<Map.Entry<UUID, PendingShopOpen>> pendingIterator = PENDING_SHOP_OPENS.entrySet().iterator();
+        while (pendingIterator.hasNext()) {
+            if (pendingIterator.next().getValue().shopId().equals(normalizedShopId)) {
+                pendingIterator.remove();
+            }
+        }
+
+        Iterator<Map.Entry<UUID, CommandShopSession>> iterator = ACTIVE_SESSIONS.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<UUID, CommandShopSession> entry = iterator.next();
+            if (!entry.getValue().shopId().equals(normalizedShopId)) {
+                continue;
+            }
+
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            iterator.remove();
+            if (player == null) {
+                continue;
+            }
+            player.closeContainer();
+            ShopFeedbackService.onShopDenied(player, denialMessage);
+        }
+    }
+
     public static boolean handleCustomSell(MinecraftServer server, ServerPlayer player) {
         CommandShopSession session = ACTIVE_SESSIONS.get(player.getUUID());
         if (session == null || !isViewingSessionBank(player, session)) {
@@ -314,6 +356,7 @@ public final class CommandShopSessions {
         SimpleContainer bankContainer = bankMenu.getBankContainer();
         BigInteger totalValue = BigInteger.ZERO;
         int soldItemCount = 0;
+        ArrayList<TransactionAuditLogger.SoldItemLine> soldItems = new ArrayList<>();
         try {
             var bankData = ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player);
             for (int slot = 0; slot < bankContainer.getContainerSize(); slot++) {
@@ -327,8 +370,10 @@ public final class CommandShopSessions {
                     continue;
                 }
 
-                totalValue = totalValue.add(offer.getPrice().multiply(BigInteger.valueOf(stack.getCount())));
+                BigInteger lineTotal = offer.getPrice().multiply(BigInteger.valueOf(stack.getCount()));
+                totalValue = totalValue.add(lineTotal);
                 soldItemCount += stack.getCount();
+                soldItems.add(new TransactionAuditLogger.SoldItemLine(stack.copy(), offer.getPrice(), lineTotal));
                 bankContainer.setItem(slot, ItemStack.EMPTY);
             }
         } catch (Exception exception) {
@@ -340,6 +385,7 @@ public final class CommandShopSessions {
         if (totalValue.signum() > 0) {
             PlayerExtensionKt.setCobbleDollars(player, PlayerExtensionKt.getCobbleDollars(player).add(totalValue));
             ShopFeedbackService.onSellSuccess(player, soldItemCount, totalValue);
+            TransactionAuditLogger.logSellSuccess(player, shop, soldItemCount, totalValue, soldItems);
         } else {
             ShopFeedbackService.onSellFailure(player, SellFailureReason.NOTHING_SELLABLE);
         }
@@ -350,12 +396,20 @@ public final class CommandShopSessions {
 
     private static ShopDefinition resolveSessionShop(MinecraftServer server, ServerPlayer player, CommandShopSession session) {
         ShopDefinition shop = ShopRegistry.getShop(session.shopId());
-        if (shop != null) {
+        if (shop == null) {
+            cleanupPlayer(server, player.getUUID());
+            player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", session.shopId()));
+            return null;
+        }
+
+        ShopRegistry.ShopAccessResult accessResult = ShopRegistry.evaluateAccess(server, shop, player);
+        if (accessResult.allowed()) {
             return shop;
         }
 
         cleanupPlayer(server, player.getUUID());
-        player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", session.shopId()));
+        player.closeContainer();
+        ShopFeedbackService.onShopDenied(player, accessResult.denialMessage());
         return null;
     }
 
@@ -429,14 +483,103 @@ public final class CommandShopSessions {
         return Math.max(1L, (deltaMillis + 49L) / 50L);
     }
 
-    private static void giveOfferItems(ServerPlayer player, ItemStack template, int amount) {
+    private static void appendDeliveryStacks(List<ItemStack> deliveries, ItemStack template, int amount) {
         int remaining = Math.multiplyExact(template.getCount(), amount);
         int maxStackSize = template.getMaxStackSize();
         while (remaining > 0) {
             int stackCount = Math.min(maxStackSize, remaining);
-            player.addItem(template.copyWithCount(stackCount));
+            deliveries.add(template.copyWithCount(stackCount));
             remaining -= stackCount;
         }
+    }
+
+    private static boolean deliverAllItems(ServerPlayer player, List<ItemStack> deliveries) {
+        if (player.hasInfiniteMaterials()) {
+            return true;
+        }
+
+        for (ItemStack delivery : deliveries) {
+            ItemStack remaining = delivery.copy();
+            if (!player.getInventory().add(remaining) || !remaining.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean canFitAllDeliveries(ServerPlayer player, List<ItemStack> deliveries) {
+        if (player.hasInfiniteMaterials()) {
+            return true;
+        }
+
+        ArrayList<ItemStack> items = new ArrayList<>(player.getInventory().items.size());
+        for (ItemStack item : player.getInventory().items) {
+            items.add(item.copy());
+        }
+        ItemStack offhand = player.getInventory().offhand.get(0).copy();
+        int selected = player.getInventory().selected;
+
+        for (ItemStack delivery : deliveries) {
+            ItemStack stack = delivery.copy();
+            if (stack.isEmpty()) {
+                continue;
+            }
+
+            if (stack.isDamaged() || !stack.isStackable()) {
+                while (!stack.isEmpty()) {
+                    int freeSlot = findFreeItemSlot(items);
+                    if (freeSlot < 0) {
+                        return false;
+                    }
+                    items.set(freeSlot, stack.copyWithCount(1));
+                    stack.shrink(1);
+                }
+                continue;
+            }
+
+            mergeInto(items.get(selected), stack);
+            mergeInto(offhand, stack);
+            for (ItemStack item : items) {
+                if (stack.isEmpty()) {
+                    break;
+                }
+                mergeInto(item, stack);
+            }
+            while (!stack.isEmpty()) {
+                int freeSlot = findFreeItemSlot(items);
+                if (freeSlot < 0) {
+                    return false;
+                }
+                int placed = Math.min(stack.getCount(), stack.getMaxStackSize());
+                items.set(freeSlot, stack.copyWithCount(placed));
+                stack.shrink(placed);
+            }
+        }
+        return true;
+    }
+
+    private static void mergeInto(ItemStack destination, ItemStack source) {
+        if (destination.isEmpty() || source.isEmpty()) {
+            return;
+        }
+        if (!ItemStack.isSameItemSameComponents(destination, source) || !destination.isStackable()) {
+            return;
+        }
+        int moved = Math.min(source.getCount(), destination.getMaxStackSize() - destination.getCount());
+        if (moved <= 0) {
+            return;
+        }
+        destination.grow(moved);
+        source.shrink(moved);
+    }
+
+    private static int findFreeItemSlot(List<ItemStack> items) {
+        for (int index = 0; index < items.size(); index++) {
+            if (items.get(index).isEmpty()) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static Offer getRuntimeOffer(Shop shop, int categoryIndex, int offerIndex) {
@@ -544,7 +687,8 @@ public final class CommandShopSessions {
                         runtimeOffer.getStock(),
                         preview.hasNextRestock() ? preview.nextRestockAtMillis() : -1L,
                         preview.nextRestockAmount(),
-                        resolveRestockZoneId(preview)
+                        resolveRestockZoneId(preview),
+                        encodeBonusStates(entry.resolvedOffer())
                 ));
             }
         }
@@ -560,6 +704,23 @@ public final class CommandShopSessions {
             return dailyRule.timeZone();
         }
         return ZoneId.systemDefault().getId();
+    }
+
+    private static List<ShopUiStatePayload.BonusState> encodeBonusStates(ResolvedShopOffer resolvedOffer) {
+        List<PurchaseBonusDefinition> purchaseBonuses = resolvedOffer.source().purchaseBonuses();
+        if (purchaseBonuses.isEmpty()) {
+            return List.of();
+        }
+
+        ArrayList<ShopUiStatePayload.BonusState> bonusStates = new ArrayList<>(purchaseBonuses.size());
+        for (PurchaseBonusDefinition purchaseBonus : purchaseBonuses) {
+            ArrayList<ShopUiStatePayload.RewardState> rewards = new ArrayList<>(purchaseBonus.rewards().size());
+            for (RewardStackDefinition reward : purchaseBonus.rewards()) {
+                rewards.add(new ShopUiStatePayload.RewardState(reward.template()));
+            }
+            bonusStates.add(new ShopUiStatePayload.BonusState(purchaseBonus.requiredBundles(), rewards));
+        }
+        return List.copyOf(bonusStates);
     }
 
     private static ShopMenu requireShopMenu(ServerPlayer player) {
@@ -659,6 +820,37 @@ public final class CommandShopSessions {
     private record PendingShopOpen(String shopId, long executeAtTick, int retriesRemaining) {
         private PendingShopOpen retryAt(long nextTick) {
             return new PendingShopOpen(shopId, nextTick, retriesRemaining - 1);
+        }
+    }
+
+    private record InventorySnapshot(List<ItemStack> items, List<ItemStack> armor, List<ItemStack> offhand, int selectedSlot) {
+        private static InventorySnapshot capture(ServerPlayer player) {
+            ArrayList<ItemStack> items = new ArrayList<>(player.getInventory().items.size());
+            for (ItemStack item : player.getInventory().items) {
+                items.add(item.copy());
+            }
+            ArrayList<ItemStack> armor = new ArrayList<>(player.getInventory().armor.size());
+            for (ItemStack item : player.getInventory().armor) {
+                armor.add(item.copy());
+            }
+            ArrayList<ItemStack> offhand = new ArrayList<>(player.getInventory().offhand.size());
+            for (ItemStack item : player.getInventory().offhand) {
+                offhand.add(item.copy());
+            }
+            return new InventorySnapshot(List.copyOf(items), List.copyOf(armor), List.copyOf(offhand), player.getInventory().selected);
+        }
+
+        private void restore(ServerPlayer player) {
+            player.getInventory().selected = selectedSlot;
+            for (int index = 0; index < items.size(); index++) {
+                player.getInventory().items.set(index, items.get(index).copy());
+            }
+            for (int index = 0; index < armor.size(); index++) {
+                player.getInventory().armor.set(index, armor.get(index).copy());
+            }
+            for (int index = 0; index < offhand.size(); index++) {
+                player.getInventory().offhand.set(index, offhand.get(index).copy());
+            }
         }
     }
 

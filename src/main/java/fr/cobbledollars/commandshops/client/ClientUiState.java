@@ -136,6 +136,14 @@ public final class ClientUiState {
         lines.add(labelValue("cobbledollarscommandshops.ui.label.unit_price", ClientUiFormatter.formatMoney(offer.getPrice()))
                 .withStyle(style -> style.withColor(TEXT_GOLD)));
         lines.add(labelValue("cobbledollarscommandshops.ui.label.stock", formatStockValue(stock)));
+        if (offerState != null && !offerState.bonuses().isEmpty()) {
+            lines.add(Component.empty());
+            lines.add(Component.translatable("cobbledollarscommandshops.ui.label.purchase_bonuses")
+                    .withStyle(style -> style.withColor(0xFF8FD88F)));
+            for (ShopUiStatePayload.BonusState bonusState : offerState.bonuses()) {
+                lines.add(formatPurchaseBonus(bonusState));
+            }
+        }
         if (offerState != null && offerState.hasNextRestock()) {
             lines.add(Component.translatable(
                     "cobbledollarscommandshops.ui.tooltip.restock_at",
@@ -331,8 +339,8 @@ public final class ClientUiState {
         if (layout.searchRect().contains(mouseX, mouseY)) {
             acceptedItemsSearchFocused = true;
             if (acceptedItemsSearchBox != null) {
+                acceptedItemsSearchBox.setFocused(true);
                 acceptedItemsSearchBox.mouseClicked(mouseX, mouseY, event.getButton());
-                acceptedItemsSearchFocused = acceptedItemsSearchBox.isFocused();
             }
             event.setCanceled(true);
             return;
@@ -395,7 +403,7 @@ public final class ClientUiState {
         if (!(event.getScreen() instanceof BankScreen) || !acceptedItemsModalOpen) {
             return;
         }
-        if (event.getKeyCode() == GLFW.GLFW_KEY_ESCAPE || Minecraft.getInstance().options.keyInventory.matches(event.getKeyCode(), event.getScanCode())) {
+        if (event.getKeyCode() == GLFW.GLFW_KEY_ESCAPE) {
             acceptedItemsModalOpen = false;
             acceptedItemsSearchFocused = false;
             if (acceptedItemsSearchBox != null) {
@@ -405,6 +413,19 @@ public final class ClientUiState {
             return;
         }
         if (acceptedItemsSearchFocused && acceptedItemsSearchBox != null && acceptedItemsSearchBox.keyPressed(event.getKeyCode(), event.getScanCode(), event.getModifiers())) {
+            event.setCanceled(true);
+            return;
+        }
+        if (acceptedItemsSearchFocused && Minecraft.getInstance().options.keyInventory.matches(event.getKeyCode(), event.getScanCode())) {
+            event.setCanceled(true);
+            return;
+        }
+        if (Minecraft.getInstance().options.keyInventory.matches(event.getKeyCode(), event.getScanCode())) {
+            acceptedItemsModalOpen = false;
+            acceptedItemsSearchFocused = false;
+            if (acceptedItemsSearchBox != null) {
+                acceptedItemsSearchBox.setFocused(false);
+            }
             event.setCanceled(true);
         }
     }
@@ -492,6 +513,24 @@ public final class ClientUiState {
         }
         return Component.literal(Integer.toString(stock))
                 .withStyle(style -> style.withColor(0xFF6CD987));
+    }
+
+    private static Component formatPurchaseBonus(ShopUiStatePayload.BonusState bonusState) {
+        StringBuilder rewardText = new StringBuilder();
+        for (int index = 0; index < bonusState.rewards().size(); index++) {
+            if (index > 0) {
+                rewardText.append(", ");
+            }
+            ItemStack rewardStack = bonusState.rewards().get(index).stack();
+            rewardText.append(rewardStack.getCount())
+                    .append("x ")
+                    .append(rewardStack.getHoverName().getString());
+        }
+        return Component.translatable(
+                "cobbledollarscommandshops.ui.tooltip.purchase_bonus",
+                bonusState.requiredBundles(),
+                rewardText.toString()
+        ).withStyle(style -> style.withColor(TEXT_MUTED));
     }
 
     private static void renderAcceptedSlotHighlights(GuiGraphics guiGraphics, BankScreen screen) {
