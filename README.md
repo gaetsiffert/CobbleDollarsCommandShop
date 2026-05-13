@@ -1,5 +1,9 @@
 # CobbleDollars Command Shops
 
+<p align="center">
+  <img src="art/CobbleDollarsCommandShop_no_background.png" alt="CobbleDollars Command Shops logo" width="320">
+</p>
+
 Server-side NeoForge addon for CobbleDollars on Minecraft `1.21.1`.
 
 This mod adds command-driven CobbleDollars shops with:
