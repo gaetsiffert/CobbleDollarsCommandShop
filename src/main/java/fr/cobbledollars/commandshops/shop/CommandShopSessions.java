@@ -26,7 +26,6 @@ import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import fr.harmex.cobbledollars.common.world.item.trading.CobbleDollarsShopHolder;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Category;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
 import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
 import net.minecraft.network.chat.Component;
@@ -35,6 +34,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
 public final class CommandShopSessions {
@@ -186,12 +186,12 @@ public final class CommandShopSessions {
 
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
-            sendStockUpdate(player, session, packet.getCategoryIndex(), packet.getOfferIndex(), 0);
-            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
+            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
         if (currentStock > 0 && amount > currentStock) {
+            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
@@ -199,6 +199,7 @@ public final class CommandShopSessions {
         BigInteger totalPrice = expectedOffer.getPrice().multiply(BigInteger.valueOf(amount));
         BigInteger balance = PlayerExtensionKt.getCobbleDollars(player);
         if (balance.compareTo(totalPrice) < 0) {
+            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_MONEY);
             return true;
         }
@@ -209,15 +210,10 @@ public final class CommandShopSessions {
         for (ItemStack bonusItem : bonusItems) {
             appendDeliveryStacks(deliveries, bonusItem, 1);
         }
-        if (!canFitAllDeliveries(player, deliveries)) {
-            ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
-            return true;
-        }
-
         InventorySnapshot inventorySnapshot = InventorySnapshot.capture(player);
-        if (!deliverAllItems(player, deliveries)) {
-            inventorySnapshot.restore(player);
-            player.containerMenu.broadcastChanges();
+        InventorySnapshot deliveredInventory = inventorySnapshot.planDelivery(deliveries);
+        if (deliveredInventory == null) {
+            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
             return true;
         }
@@ -227,6 +223,8 @@ public final class CommandShopSessions {
         }
 
         PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
+        deliveredInventory.apply(player.getInventory());
+        player.getInventory().setChanged();
         player.containerMenu.broadcastChanges();
 
         int updatedStock = -1;
@@ -493,95 +491,6 @@ public final class CommandShopSessions {
         }
     }
 
-    private static boolean deliverAllItems(ServerPlayer player, List<ItemStack> deliveries) {
-        if (player.hasInfiniteMaterials()) {
-            return true;
-        }
-
-        for (ItemStack delivery : deliveries) {
-            ItemStack remaining = delivery.copy();
-            if (!player.getInventory().add(remaining) || !remaining.isEmpty()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean canFitAllDeliveries(ServerPlayer player, List<ItemStack> deliveries) {
-        if (player.hasInfiniteMaterials()) {
-            return true;
-        }
-
-        ArrayList<ItemStack> items = new ArrayList<>(player.getInventory().items.size());
-        for (ItemStack item : player.getInventory().items) {
-            items.add(item.copy());
-        }
-        ItemStack offhand = player.getInventory().offhand.get(0).copy();
-        int selected = player.getInventory().selected;
-
-        for (ItemStack delivery : deliveries) {
-            ItemStack stack = delivery.copy();
-            if (stack.isEmpty()) {
-                continue;
-            }
-
-            if (stack.isDamaged() || !stack.isStackable()) {
-                while (!stack.isEmpty()) {
-                    int freeSlot = findFreeItemSlot(items);
-                    if (freeSlot < 0) {
-                        return false;
-                    }
-                    items.set(freeSlot, stack.copyWithCount(1));
-                    stack.shrink(1);
-                }
-                continue;
-            }
-
-            mergeInto(items.get(selected), stack);
-            mergeInto(offhand, stack);
-            for (ItemStack item : items) {
-                if (stack.isEmpty()) {
-                    break;
-                }
-                mergeInto(item, stack);
-            }
-            while (!stack.isEmpty()) {
-                int freeSlot = findFreeItemSlot(items);
-                if (freeSlot < 0) {
-                    return false;
-                }
-                int placed = Math.min(stack.getCount(), stack.getMaxStackSize());
-                items.set(freeSlot, stack.copyWithCount(placed));
-                stack.shrink(placed);
-            }
-        }
-        return true;
-    }
-
-    private static void mergeInto(ItemStack destination, ItemStack source) {
-        if (destination.isEmpty() || source.isEmpty()) {
-            return;
-        }
-        if (!ItemStack.isSameItemSameComponents(destination, source) || !destination.isStackable()) {
-            return;
-        }
-        int moved = Math.min(source.getCount(), destination.getMaxStackSize() - destination.getCount());
-        if (moved <= 0) {
-            return;
-        }
-        destination.grow(moved);
-        source.shrink(moved);
-    }
-
-    private static int findFreeItemSlot(List<ItemStack> items) {
-        for (int index = 0; index < items.size(); index++) {
-            if (items.get(index).isEmpty()) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
     private static Offer getRuntimeOffer(Shop shop, int categoryIndex, int offerIndex) {
         if (categoryIndex < 0 || categoryIndex >= shop.size()) {
             return null;
@@ -646,6 +555,24 @@ public final class CommandShopSessions {
 
     private static void sendStockUpdate(ServerPlayer player, CommandShopSession session, int categoryIndex, int offerIndex, int stock) {
         new UpdateStockPacket(categoryIndex, offerIndex, stock, session.sessionUuid()).sendToPlayer(player);
+    }
+
+    private static void resyncRejectedOfferState(
+            ServerPlayer player,
+            CommandShopSession session,
+            ShopDefinition.RuntimeShopData runtimeData,
+            PlayerShopStockData stockData,
+            long nowMillis,
+            int categoryIndex,
+            int offerIndex
+    ) {
+        Offer runtimeOffer = runtimeData.getRuntimeOffer(categoryIndex, offerIndex);
+        if (runtimeOffer == null) {
+            sendFullSync(player, session, runtimeData.shop());
+        } else {
+            sendStockUpdate(player, session, categoryIndex, offerIndex, runtimeOffer.getStock());
+        }
+        syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
     }
 
     private static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop, BankDefinition.RuntimeBankData runtimeBankData) {
@@ -825,32 +752,142 @@ public final class CommandShopSessions {
 
     private record InventorySnapshot(List<ItemStack> items, List<ItemStack> armor, List<ItemStack> offhand, int selectedSlot) {
         private static InventorySnapshot capture(ServerPlayer player) {
-            ArrayList<ItemStack> items = new ArrayList<>(player.getInventory().items.size());
-            for (ItemStack item : player.getInventory().items) {
-                items.add(item.copy());
-            }
-            ArrayList<ItemStack> armor = new ArrayList<>(player.getInventory().armor.size());
-            for (ItemStack item : player.getInventory().armor) {
-                armor.add(item.copy());
-            }
-            ArrayList<ItemStack> offhand = new ArrayList<>(player.getInventory().offhand.size());
-            for (ItemStack item : player.getInventory().offhand) {
-                offhand.add(item.copy());
-            }
-            return new InventorySnapshot(List.copyOf(items), List.copyOf(armor), List.copyOf(offhand), player.getInventory().selected);
+            return capture(player.getInventory());
         }
 
-        private void restore(ServerPlayer player) {
-            player.getInventory().selected = selectedSlot;
+        private static InventorySnapshot capture(Inventory inventory) {
+            ArrayList<ItemStack> items = new ArrayList<>(inventory.items.size());
+            for (ItemStack item : inventory.items) {
+                items.add(item.copy());
+            }
+            ArrayList<ItemStack> armor = new ArrayList<>(inventory.armor.size());
+            for (ItemStack item : inventory.armor) {
+                armor.add(item.copy());
+            }
+            ArrayList<ItemStack> offhand = new ArrayList<>(inventory.offhand.size());
+            for (ItemStack item : inventory.offhand) {
+                offhand.add(item.copy());
+            }
+            return new InventorySnapshot(List.copyOf(items), List.copyOf(armor), List.copyOf(offhand), inventory.selected);
+        }
+
+        private InventorySnapshot planDelivery(List<ItemStack> deliveries) {
+            ArrayList<ItemStack> plannedItems = copyStacks(items);
+            ArrayList<ItemStack> plannedArmor = copyStacks(armor);
+            ArrayList<ItemStack> plannedOffhand = copyStacks(offhand);
+
+            for (ItemStack delivery : deliveries) {
+                if (!addDeliveryStack(delivery, plannedItems, plannedOffhand, selectedSlot)) {
+                    return null;
+                }
+            }
+
+            return new InventorySnapshot(
+                    List.copyOf(plannedItems),
+                    List.copyOf(plannedArmor),
+                    List.copyOf(plannedOffhand),
+                    selectedSlot
+            );
+        }
+
+        private void apply(Inventory inventory) {
+            inventory.selected = selectedSlot;
             for (int index = 0; index < items.size(); index++) {
-                player.getInventory().items.set(index, items.get(index).copy());
+                inventory.items.set(index, items.get(index).copy());
             }
             for (int index = 0; index < armor.size(); index++) {
-                player.getInventory().armor.set(index, armor.get(index).copy());
+                inventory.armor.set(index, armor.get(index).copy());
             }
             for (int index = 0; index < offhand.size(); index++) {
-                player.getInventory().offhand.set(index, offhand.get(index).copy());
+                inventory.offhand.set(index, offhand.get(index).copy());
             }
+        }
+
+        private static ArrayList<ItemStack> copyStacks(List<ItemStack> stacks) {
+            ArrayList<ItemStack> copies = new ArrayList<>(stacks.size());
+            for (ItemStack stack : stacks) {
+                copies.add(stack.copy());
+            }
+            return copies;
+        }
+
+        private static boolean addDeliveryStack(ItemStack delivery, List<ItemStack> items, List<ItemStack> offhand, int selectedSlot) {
+            if (delivery.isEmpty()) {
+                return true;
+            }
+
+            ItemStack remaining = delivery.copy();
+            while (!remaining.isEmpty()) {
+                int previousCount = remaining.getCount();
+                remaining.setCount(addResourceAuto(items, offhand, selectedSlot, remaining));
+                if (!remaining.isEmpty() && remaining.getCount() >= previousCount) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static int addResourceAuto(List<ItemStack> items, List<ItemStack> offhand, int selectedSlot, ItemStack stack) {
+            int slot = getSlotWithRemainingSpace(items, offhand, selectedSlot, stack);
+            if (slot == -1) {
+                slot = getFreeSlot(items);
+            }
+            if (slot == -1) {
+                return stack.getCount();
+            }
+            return addResource(items, offhand, slot, stack);
+        }
+
+        private static int addResource(List<ItemStack> items, List<ItemStack> offhand, int slot, ItemStack stack) {
+            ItemStack currentStack = slot == 40 ? offhand.get(0) : items.get(slot);
+            if (currentStack.isEmpty()) {
+                currentStack = stack.copyWithCount(0);
+                if (slot == 40) {
+                    offhand.set(0, currentStack);
+                } else {
+                    items.set(slot, currentStack);
+                }
+            }
+
+            int spaceLeft = currentStack.getMaxStackSize() - currentStack.getCount();
+            if (spaceLeft <= 0) {
+                return stack.getCount();
+            }
+
+            int movedCount = Math.min(stack.getCount(), spaceLeft);
+            currentStack.grow(movedCount);
+            return stack.getCount() - movedCount;
+        }
+
+        private static int getSlotWithRemainingSpace(List<ItemStack> items, List<ItemStack> offhand, int selectedSlot, ItemStack stack) {
+            if (selectedSlot >= 0 && selectedSlot < items.size() && hasRemainingSpaceForItem(items.get(selectedSlot), stack)) {
+                return selectedSlot;
+            }
+            if (!offhand.isEmpty() && hasRemainingSpaceForItem(offhand.get(0), stack)) {
+                return 40;
+            }
+            for (int slot = 0; slot < items.size(); slot++) {
+                if (hasRemainingSpaceForItem(items.get(slot), stack)) {
+                    return slot;
+                }
+            }
+            return -1;
+        }
+
+        private static int getFreeSlot(List<ItemStack> items) {
+            for (int slot = 0; slot < items.size(); slot++) {
+                if (items.get(slot).isEmpty()) {
+                    return slot;
+                }
+            }
+            return -1;
+        }
+
+        private static boolean hasRemainingSpaceForItem(ItemStack currentStack, ItemStack incomingStack) {
+            return !currentStack.isEmpty()
+                    && ItemStack.isSameItemSameComponents(currentStack, incomingStack)
+                    && currentStack.isStackable()
+                    && currentStack.getCount() < currentStack.getMaxStackSize();
         }
     }
 
