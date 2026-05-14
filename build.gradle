@@ -26,6 +26,15 @@ sourceSets.main.resources {
     exclude("src/generated/**/.cache") // datagen cache files
 }
 
+sourceSets {
+    gametest {
+        java.srcDir('src/gametest/java')
+        resources.srcDir('src/gametest/resources')
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
+}
+
 repositories {
     // Add here additional repositories if required by some of the dependencies below.
     exclusiveContent {
@@ -81,6 +90,7 @@ neoForge {
         // The gametest system is also enabled by default for other run configs under the /test command.
         gameTestServer {
             type = "gameTestServer"
+            gameDirectory = project.file('run-gametest')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
@@ -114,9 +124,15 @@ neoForge {
         // define mod <-> source bindings
         // these are used to tell the game which sources are for which mod
         // multi mod projects should define one per mod
-        "${mod_id}" {
+        cobbledollarscommandshops {
             sourceSet(sourceSets.main)
+            sourceSet(sourceSets.gametest)
         }
+    }
+
+    unitTest {
+        enable()
+        testedMod = mods.cobbledollarscommandshops
     }
 }
 
@@ -126,6 +142,8 @@ neoForge {
 // "optional", meaning it will not be pulled by dependents of this mod.
 configurations {
     runtimeClasspath.extendsFrom localRuntime
+    gametestImplementation.extendsFrom implementation, compileOnly
+    gametestRuntimeOnly.extendsFrom runtimeOnly, localRuntime
 }
 
 dependencies {
@@ -155,11 +173,22 @@ dependencies {
     compileOnly "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
     compileOnly "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
     compileOnly "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
+    localRuntime "net.neoforged:testframework:${neo_version}"
     localRuntime "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
     localRuntime "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
     localRuntime "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
+    testRuntimeOnly "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
+    testRuntimeOnly "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
+    testRuntimeOnly "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
     compileOnly "org.spongepowered:mixin:0.8.5"
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
+    testImplementation platform("org.junit:junit-bom:5.12.2")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "com.google.code.gson:gson:2.10.1"
+    testImplementation "net.neoforged:testframework:${neo_version}"
+    gametestImplementation "net.neoforged:testframework:${neo_version}"
+    gametestRuntimeOnly "net.neoforged:testframework:${neo_version}"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
@@ -200,13 +229,20 @@ publishing {
     }
     repositories {
         maven {
-            url "file://${project.projectDir}/repo"
+            url = "file://${project.projectDir}/repo"
         }
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
+    minHeapSize = '1G'
+    maxHeapSize = '3G'
+    systemProperty 'commandshops.projectDir', project.projectDir.absolutePath
 }
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.

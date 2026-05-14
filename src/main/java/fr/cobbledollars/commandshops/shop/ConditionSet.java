@@ -27,6 +27,7 @@ public final class ConditionSet {
     private final List<ResourceLocation> advancementsAny;
     private final List<ResourceLocation> dimensionsAny;
     private final List<TimeRangeCondition> timeRangesAny;
+    private final List<TimeWindowMath.TimeWindow> timeWindows;
     private final List<ScoreCondition> scoresAll;
     private final boolean empty;
     private final boolean hasPlayerStateConditions;
@@ -50,6 +51,7 @@ public final class ConditionSet {
         this.advancementsAny = List.copyOf(advancementsAny);
         this.dimensionsAny = List.copyOf(dimensionsAny);
         this.timeRangesAny = List.copyOf(timeRangesAny);
+        this.timeWindows = toTimeWindows(this.timeRangesAny);
         this.scoresAll = List.copyOf(scoresAll);
         this.hasPlayerStateConditions = !this.playerTagsAll.isEmpty()
                 || !this.playerTagsAny.isEmpty()
@@ -143,17 +145,7 @@ public final class ConditionSet {
     }
 
     public long nextTimeBoundaryDelayTicks(long timeOfDay) {
-        if (!hasTimeConditions) {
-            return Long.MAX_VALUE;
-        }
-
-        long normalizedTime = Math.floorMod(timeOfDay, 24000L);
-        long nextDelay = Long.MAX_VALUE;
-        for (TimeRangeCondition timeRange : timeRangesAny) {
-            nextDelay = Math.min(nextDelay, delayToBoundary(normalizedTime, timeRange.startTick()));
-            nextDelay = Math.min(nextDelay, delayToBoundary(normalizedTime, timeRange.endTick()));
-        }
-        return nextDelay;
+        return TimeWindowMath.nextBoundaryDelayTicks(timeOfDay, timeWindows);
     }
 
     public boolean test(ServerPlayer player) {
@@ -242,12 +234,16 @@ public final class ConditionSet {
         return true;
     }
 
-    private static long delayToBoundary(long currentTimeOfDay, int boundaryTick) {
-        long delay = boundaryTick - currentTimeOfDay;
-        if (delay <= 0L) {
-            delay += 24000L;
+    private static List<TimeWindowMath.TimeWindow> toTimeWindows(List<TimeRangeCondition> timeRanges) {
+        if (timeRanges.isEmpty()) {
+            return List.of();
         }
-        return delay;
+
+        ArrayList<TimeWindowMath.TimeWindow> windows = new ArrayList<>(timeRanges.size());
+        for (TimeRangeCondition timeRange : timeRanges) {
+            windows.add(new TimeWindowMath.TimeWindow(timeRange.startTick(), timeRange.endTick()));
+        }
+        return List.copyOf(windows);
     }
 
     private static List<String> readStringArray(JsonObject object, String key, String context) throws IOException {
@@ -464,10 +460,7 @@ public final class ConditionSet {
 
     public record TimeRangeCondition(int startTick, int endTick) {
         public boolean test(long timeOfDay) {
-            if (startTick < endTick) {
-                return timeOfDay >= startTick && timeOfDay < endTick;
-            }
-            return timeOfDay >= startTick || timeOfDay < endTick;
+            return TimeWindowMath.contains(timeOfDay, startTick, endTick);
         }
     }
 

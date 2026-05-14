@@ -1,6 +1,7 @@
 package fr.cobbledollars.commandshops;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 
 import fr.cobbledollars.commandshops.command.CommandShopCommands;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
@@ -27,6 +28,7 @@ public class CobbleDollarsCommandShopsMod {
 
     public CobbleDollarsCommandShopsMod(ModContainer modContainer) {
         NeoForge.EVENT_BUS.register(this);
+        initializeOptionalGameTestBootstrap(modContainer);
     }
 
     @SubscribeEvent
@@ -61,5 +63,15 @@ public class CobbleDollarsCommandShopsMod {
         CommandShopSessions.cleanupAll();
         ShopFeedbackService.clear();
         ShopRegistry.clear();
+    }
+
+    private static void initializeOptionalGameTestBootstrap(ModContainer modContainer) {
+        try {
+            Class<?> bootstrapClass = Class.forName("fr.cobbledollars.commandshops.gametest.CommandShopGameTestBootstrap");
+            bootstrapClass.getMethod("init", ModContainer.class).invoke(null, modContainer);
+        } catch (ClassNotFoundException ignored) {
+        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException exception) {
+            throw new RuntimeException("Failed to initialize optional GameTest bootstrap.", exception);
+        }
     }
 }
