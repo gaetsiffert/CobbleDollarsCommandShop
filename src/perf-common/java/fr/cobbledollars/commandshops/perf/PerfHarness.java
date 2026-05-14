@@ -35,14 +35,27 @@ public final class PerfHarness {
             totalNanos += elapsedNanos;
         }
 
+        return summarizeSamples(scenario, warmupIterations, samples);
+    }
+
+    public static Measurement summarizeSamples(String scenario, int warmupIterations, long[] samples) {
+        if (samples.length == 0) {
+            throw new IllegalArgumentException("samples must not be empty");
+        }
+
+        long totalNanos = 0L;
+        for (long sample : samples) {
+            totalNanos += sample;
+        }
+
         long[] sortedSamples = samples.clone();
         Arrays.sort(sortedSamples);
         long minNanos = sortedSamples[0];
         long medianNanos = sortedSamples[(sortedSamples.length - 1) / 2];
         long p95Nanos = sortedSamples[(int) Math.ceil(sortedSamples.length * 0.95d) - 1];
         long maxNanos = sortedSamples[sortedSamples.length - 1];
-        long averageNanos = totalNanos / measuredIterations;
-        return new Measurement(scenario, warmupIterations, measuredIterations, minNanos, averageNanos, medianNanos, p95Nanos, maxNanos);
+        long averageNanos = totalNanos / samples.length;
+        return new Measurement(scenario, warmupIterations, samples.length, minNanos, averageNanos, medianNanos, p95Nanos, maxNanos);
     }
 
     public static Path writeReport(String fileStem, String title, List<Measurement> measurements) throws IOException {

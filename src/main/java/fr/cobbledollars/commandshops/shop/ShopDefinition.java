@@ -25,6 +25,7 @@ public final class ShopDefinition {
     private final Map<String, ShopOfferDefinition> offersById;
     private final List<ShopOfferDefinition> offersInOrder;
     private final List<String> sortedOfferIds;
+    private final List<PreparedCategory> preparedCategories;
     private final List<ConditionSet> allConditions;
     private final boolean hasPlayerStateConditions;
     private final boolean hasDimensionConditions;
@@ -40,6 +41,7 @@ public final class ShopDefinition {
         this.offersById = buildOfferMap(categories);
         this.offersInOrder = buildOfferList(categories);
         this.sortedOfferIds = offersById.keySet().stream().sorted().toList();
+        this.preparedCategories = prepareCategories(this.categories);
         this.allConditions = collectConditions(this.conditions, categories);
         this.hasPlayerStateConditions = allConditions.stream().anyMatch(ConditionSet::hasPlayerStateConditions);
         this.hasDimensionConditions = allConditions.stream().anyMatch(ConditionSet::hasDimensionConditions);
@@ -63,6 +65,25 @@ public final class ShopDefinition {
             offers.addAll(category.offers());
         }
         return List.copyOf(offers);
+    }
+
+    private static List<PreparedCategory> prepareCategories(List<ShopCategoryDefinition> categories) {
+        ArrayList<PreparedCategory> preparedCategories = new ArrayList<>(categories.size());
+        int sourceOrder = 0;
+        for (ShopCategoryDefinition category : categories) {
+            ArrayList<PreparedOfferGroup> preparedOfferGroups = new ArrayList<>(category.offers().size());
+            for (ShopOfferDefinition offerDefinition : category.offers()) {
+                List<ResolvedShopOffer> resolvedOffers = offerDefinition.createResolvedOffers();
+                ArrayList<PreparedCandidate> candidates = new ArrayList<>(resolvedOffers.size());
+                for (ResolvedShopOffer resolvedOffer : resolvedOffers) {
+                    candidates.add(new PreparedCandidate(displayKey(resolvedOffer.template()), sourceOrder, resolvedOffer));
+                }
+                preparedOfferGroups.add(new PreparedOfferGroup(offerDefinition, List.copyOf(candidates)));
+                sourceOrder++;
+            }
+            preparedCategories.add(new PreparedCategory(category.name(), category.conditions(), List.copyOf(preparedOfferGroups)));
+        }
+        return List.copyOf(preparedCategories);
     }
 
     private static List<ConditionSet> collectConditions(ConditionSet shopConditions, List<ShopCategoryDefinition> categories) {
@@ -198,59 +219,91 @@ public final class ShopDefinition {
     }
 
     public RuntimeShopData createRuntimeData(PlayerShopStockData stockData, ServerPlayer player, long nowMillis) {
+        return createRuntimeData(stockData, player, nowMillis, null);
+    }
+
+    RuntimeShopData createRuntimeData(
+            PlayerShopStockData stockData,
+            ServerPlayer player,
+            long nowMillis,
+            CreateRuntimeDataMetrics metrics
+    ) {
+        long phaseStartNanos = metrics == null ? 0L : System.nanoTime();
         Shop runtimeShop = new Shop();
         ConditionSet.ConditionContext context = ConditionSet.ConditionContext.capture(player);
+        if (metrics != null) {
+            metrics.contextNanos += System.nanoTime() - phaseStartNanos;
+        }
         if (!conditions.test(context)) {
-            return new RuntimeShopData(runtimeShop, List.of());
+            return new RuntimeShopData(runtimeShop, List.of(), 0, Long.MAX_VALUE);
         }
 
-        ArrayList<SourceCategoryCandidates> categoryContexts = new ArrayList<>(categories.size());
-        HashMap<ShopDisplayKey, ResolvedShopCandidate> winners = new HashMap<>();
-        int sourceOrder = 0;
-        for (ShopCategoryDefinition categoryDefinition : categories) {
-            if (!categoryDefinition.conditions().test(context)) {
+        phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+        ArrayList<VisibleCategory> visibleCategories = new ArrayList<>(preparedCategories.size());
+        HashMap<ShopDisplayKey, PreparedCandidate> winners = new HashMap<>();
+        for (PreparedCategory category : preparedCategories) {
+            if (!category.conditions().test(context)) {
                 continue;
             }
 
-            ArrayList<ResolvedShopCandidate> categoryCandidates = new ArrayList<>();
-            for (ShopOfferDefinition offerDefinition : categoryDefinition.offers()) {
-                if (!offerDefinition.isVisibleTo(context)) {
+            ArrayList<PreparedOfferGroup> visibleOfferGroups = new ArrayList<>(category.offerGroups().size());
+            for (PreparedOfferGroup offerGroup : category.offerGroups()) {
+                if (!offerGroup.offerDefinition().isVisibleTo(context)) {
                     continue;
                 }
-                for (ResolvedShopOffer resolvedOffer : offerDefinition.createResolvedOffers()) {
-                    ResolvedShopCandidate candidate = new ResolvedShopCandidate(displayKey(resolvedOffer.template()), sourceOrder, resolvedOffer);
-                    categoryCandidates.add(candidate);
+                visibleOfferGroups.add(offerGroup);
+                for (PreparedCandidate candidate : offerGroup.candidates()) {
                     winners.merge(candidate.displayKey(), candidate, ShopDefinition::selectBetterCandidate);
                 }
-                sourceOrder++;
             }
-            categoryContexts.add(new SourceCategoryCandidates(categoryDefinition.name(), List.copyOf(categoryCandidates)));
+            if (!visibleOfferGroups.isEmpty()) {
+                visibleCategories.add(new VisibleCategory(category.name(), List.copyOf(visibleOfferGroups)));
+            }
+        }
+        if (metrics != null) {
+            metrics.candidateSelectionNanos += System.nanoTime() - phaseStartNanos;
         }
 
+        phaseStartNanos = metrics == null ? 0L : System.nanoTime();
         UUID playerUuid = player.getUUID();
-        ArrayList<RuntimeCategory> runtimeCategories = new ArrayList<>(categoryContexts.size());
-        for (SourceCategoryCandidates categoryContext : categoryContexts) {
-            ArrayList<Offer> cobbleOffers = new ArrayList<>(categoryContext.candidates().size());
-            ArrayList<RuntimeShopOfferEntry> resolvedOffers = new ArrayList<>(categoryContext.candidates().size());
-            for (ResolvedShopCandidate candidate : categoryContext.candidates()) {
-                if (winners.get(candidate.displayKey()) != candidate) {
-                    continue;
-                }
+        ArrayList<RuntimeCategory> runtimeCategories = new ArrayList<>(visibleCategories.size());
+        int visibleOfferCount = 0;
+        long nextVisibleRestockAtMillis = Long.MAX_VALUE;
+        for (VisibleCategory category : visibleCategories) {
+            int categoryOfferCapacity = 0;
+            for (PreparedOfferGroup offerGroup : category.offerGroups()) {
+                categoryOfferCapacity += offerGroup.candidates().size();
+            }
+            ArrayList<Offer> cobbleOffers = new ArrayList<>(categoryOfferCapacity);
+            ArrayList<RuntimeShopOfferEntry> resolvedOffers = new ArrayList<>(categoryOfferCapacity);
+            for (PreparedOfferGroup offerGroup : category.offerGroups()) {
+                for (PreparedCandidate candidate : offerGroup.candidates()) {
+                    if (winners.get(candidate.displayKey()) != candidate) {
+                        continue;
+                    }
 
-                PlayerShopStockData.OfferRuntimeState offerState = stockData.resolveOfferRuntimeState(playerUuid, this, candidate.offer(), nowMillis);
-                Offer runtimeOffer = candidate.offer().createRuntimeOffer(offerState.stock());
-                cobbleOffers.add(runtimeOffer);
-                resolvedOffers.add(new RuntimeShopOfferEntry(candidate.offer(), runtimeOffer, offerState.restockPreview()));
+                    PlayerShopStockData.OfferRuntimeState offerState = stockData.resolveOfferRuntimeState(playerUuid, this, candidate.offer(), nowMillis);
+                    Offer runtimeOffer = candidate.offer().createRuntimeOffer(offerState.stock());
+                    cobbleOffers.add(runtimeOffer);
+                    resolvedOffers.add(new RuntimeShopOfferEntry(candidate.offer(), runtimeOffer, offerState.restockPreview()));
+                    if (offerState.restockPreview().hasNextRestock()) {
+                        nextVisibleRestockAtMillis = Math.min(nextVisibleRestockAtMillis, offerState.restockPreview().nextRestockAtMillis());
+                    }
+                }
             }
             if (!cobbleOffers.isEmpty()) {
-                runtimeShop.add(new Category(categoryContext.name(), cobbleOffers));
-                runtimeCategories.add(new RuntimeCategory(categoryContext.name(), List.copyOf(resolvedOffers)));
+                runtimeShop.add(new Category(category.name(), cobbleOffers));
+                runtimeCategories.add(new RuntimeCategory(category.name(), List.copyOf(resolvedOffers)));
+                visibleOfferCount += resolvedOffers.size();
             }
         }
-        return new RuntimeShopData(runtimeShop, List.copyOf(runtimeCategories));
+        if (metrics != null) {
+            metrics.materializationNanos += System.nanoTime() - phaseStartNanos;
+        }
+        return new RuntimeShopData(runtimeShop, List.copyOf(runtimeCategories), visibleOfferCount, nextVisibleRestockAtMillis);
     }
 
-    private static ResolvedShopCandidate selectBetterCandidate(ResolvedShopCandidate current, ResolvedShopCandidate incoming) {
+    private static PreparedCandidate selectBetterCandidate(PreparedCandidate current, PreparedCandidate incoming) {
         int currentPriority = current.offer().matchKind().priority();
         int incomingPriority = incoming.offer().matchKind().priority();
         if (incomingPriority > currentPriority) {
@@ -266,16 +319,22 @@ public final class ShopDefinition {
         return new ShopDisplayKey(stack.getItem(), stack.getComponents());
     }
 
-    private record SourceCategoryCandidates(String name, List<ResolvedShopCandidate> candidates) {
+    private record PreparedCategory(String name, ConditionSet conditions, List<PreparedOfferGroup> offerGroups) {
     }
 
-    private record ResolvedShopCandidate(ShopDisplayKey displayKey, int sourceOrder, ResolvedShopOffer offer) {
+    private record VisibleCategory(String name, List<PreparedOfferGroup> offerGroups) {
+    }
+
+    private record PreparedOfferGroup(ShopOfferDefinition offerDefinition, List<PreparedCandidate> candidates) {
+    }
+
+    private record PreparedCandidate(ShopDisplayKey displayKey, int sourceOrder, ResolvedShopOffer offer) {
     }
 
     private record ShopDisplayKey(Item item, DataComponentMap components) {
     }
 
-    public record RuntimeShopData(Shop shop, List<RuntimeCategory> categories) {
+    public record RuntimeShopData(Shop shop, List<RuntimeCategory> categories, int visibleOfferCount, long nextVisibleRestockAtMillis) {
         public RuntimeShopOfferEntry getEntry(int categoryIndex, int offerIndex) {
             if (categoryIndex < 0 || categoryIndex >= categories.size()) {
                 return null;
@@ -302,5 +361,23 @@ public final class ShopDefinition {
     }
 
     public record RuntimeShopOfferEntry(ResolvedShopOffer resolvedOffer, Offer runtimeOffer, PlayerShopStockData.RestockPreview restockPreview) {
+    }
+
+    static final class CreateRuntimeDataMetrics {
+        private long contextNanos;
+        private long candidateSelectionNanos;
+        private long materializationNanos;
+
+        long contextNanos() {
+            return contextNanos;
+        }
+
+        long candidateSelectionNanos() {
+            return candidateSelectionNanos;
+        }
+
+        long materializationNanos() {
+            return materializationNanos;
+        }
     }
 }

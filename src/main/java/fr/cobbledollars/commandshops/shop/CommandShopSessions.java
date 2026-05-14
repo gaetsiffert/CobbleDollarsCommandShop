@@ -247,30 +247,83 @@ public final class CommandShopSessions {
     }
 
     public static void refreshPlayerSession(ServerPlayer player) {
+        refreshPlayerSession(player, null);
+    }
+
+    public static RefreshBreakdown measureRefreshPlayerSession(ServerPlayer player) {
+        RefreshMetrics metrics = new RefreshMetrics();
+        long totalStartNanos = System.nanoTime();
+        refreshPlayerSession(player, metrics);
+        metrics.totalNanos = System.nanoTime() - totalStartNanos;
+        return metrics.toBreakdown();
+    }
+
+    private static void refreshPlayerSession(ServerPlayer player, RefreshMetrics metrics) {
         CommandShopSession session = ACTIVE_SESSIONS.get(player.getUUID());
         MinecraftServer server = player.getServer();
         if (session == null || server == null) {
             return;
         }
 
+        long phaseStartNanos = metrics == null ? 0L : System.nanoTime();
         ShopDefinition shop = resolveSessionShop(server, player, session);
+        if (metrics != null) {
+            metrics.resolveSessionShopNanos = System.nanoTime() - phaseStartNanos;
+        }
         if (shop == null) {
             return;
         }
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         long nowMillis = System.currentTimeMillis();
-        ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
+        ShopDefinition.CreateRuntimeDataMetrics runtimeMetrics =
+                metrics == null ? null : new ShopDefinition.CreateRuntimeDataMetrics();
+        phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+        ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis, runtimeMetrics);
+        if (metrics != null) {
+            metrics.createRuntimeDataNanos = System.nanoTime() - phaseStartNanos;
+            metrics.createRuntimeDataContextNanos = runtimeMetrics.contextNanos();
+            metrics.createRuntimeDataCandidateSelectionNanos = runtimeMetrics.candidateSelectionNanos();
+            metrics.createRuntimeDataMaterializationNanos = runtimeMetrics.materializationNanos();
+        }
         Shop runtimeShop = runtimeData.shop();
         if (isViewingSessionShop(player, session)) {
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
             refreshSessionShop(player, session, runtimeShop);
-            long nextRestockAtMillis = syncClientShopUiState(player, session, runtimeData);
+            if (metrics != null) {
+                metrics.refreshSessionShopNanos = System.nanoTime() - phaseStartNanos;
+            }
+            ShopUiSyncMetrics syncMetrics = metrics == null ? null : new ShopUiSyncMetrics();
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+            long nextRestockAtMillis = syncClientShopUiState(player, session, runtimeData, null, 0L, syncMetrics);
+            if (metrics != null) {
+                metrics.syncClientShopUiStateNanos = System.nanoTime() - phaseStartNanos;
+                metrics.syncClientShopUiStateBuildNanos = syncMetrics.buildOfferStatesNanos;
+                metrics.syncClientShopUiStateSendNanos = syncMetrics.sendPayloadNanos;
+            }
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
             updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, nextRestockAtMillis);
+            if (metrics != null) {
+                metrics.updateSessionRefreshStateNanos = System.nanoTime() - phaseStartNanos;
+            }
             return;
         }
         if (isViewingSessionBank(player, session)) {
-            syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+            BankDefinition.RuntimeBankData runtimeBankData = ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player);
+            if (metrics != null) {
+                metrics.createRuntimeBankDataNanos = System.nanoTime() - phaseStartNanos;
+            }
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+            syncClientBankConfig(player, runtimeShop, runtimeBankData);
+            if (metrics != null) {
+                metrics.syncClientBankConfigNanos = System.nanoTime() - phaseStartNanos;
+            }
+            phaseStartNanos = metrics == null ? 0L : System.nanoTime();
             updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, Long.MAX_VALUE);
+            if (metrics != null) {
+                metrics.updateSessionRefreshStateNanos = System.nanoTime() - phaseStartNanos;
+            }
         }
     }
 
@@ -461,7 +514,7 @@ public final class CommandShopSessions {
         if (shop.hasRestockingOffers()) {
             long scheduledRestockAtMillis = nextRestockAtMillis;
             if (scheduledRestockAtMillis == Long.MAX_VALUE && runtimeData != null) {
-                scheduledRestockAtMillis = findNextVisibleRestockAtMillis(runtimeData);
+                scheduledRestockAtMillis = runtimeData.nextVisibleRestockAtMillis();
             }
             if (scheduledRestockAtMillis != Long.MAX_VALUE) {
                 nextRefreshTick = Math.min(nextRefreshTick, currentTick + millisToTicks(scheduledRestockAtMillis - nowMillis));
@@ -612,7 +665,7 @@ public final class CommandShopSessions {
     }
 
     private static long syncClientShopUiState(ServerPlayer player, CommandShopSession session, ShopDefinition.RuntimeShopData runtimeData) {
-        return syncClientShopUiState(player, session, runtimeData, null, 0L);
+        return syncClientShopUiState(player, session, runtimeData, null, 0L, null);
     }
 
     private static long syncClientShopUiState(
@@ -621,6 +674,17 @@ public final class CommandShopSessions {
             ShopDefinition.RuntimeShopData runtimeData,
             PlayerShopStockData stockData,
             long nowMillis
+    ) {
+        return syncClientShopUiState(player, session, runtimeData, stockData, nowMillis, null);
+    }
+
+    private static long syncClientShopUiState(
+            ServerPlayer player,
+            CommandShopSession session,
+            ShopDefinition.RuntimeShopData runtimeData,
+            PlayerShopStockData stockData,
+            long nowMillis,
+            ShopUiSyncMetrics metrics
     ) {
         if (runtimeData == null) {
             return Long.MAX_VALUE;
@@ -631,7 +695,8 @@ public final class CommandShopSessions {
             return Long.MAX_VALUE;
         }
 
-        ArrayList<ShopUiStatePayload.OfferState> offers = new ArrayList<>(countVisibleOffers(runtimeData));
+        long phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+        ArrayList<ShopUiStatePayload.OfferState> offers = new ArrayList<>(runtimeData.visibleOfferCount());
         long nextRestockAtMillis = Long.MAX_VALUE;
         for (int visibleCategoryIndex = 0; visibleCategoryIndex < runtimeData.categories().size(); visibleCategoryIndex++) {
             ShopDefinition.RuntimeCategory category = runtimeData.categories().get(visibleCategoryIndex);
@@ -659,28 +724,14 @@ public final class CommandShopSessions {
                 ));
             }
         }
-
-        ClientUiSync.sendShopUiState(player, session.sessionUuid(), offers);
-        return nextRestockAtMillis;
-    }
-
-    private static int countVisibleOffers(ShopDefinition.RuntimeShopData runtimeData) {
-        int visibleOfferCount = 0;
-        for (ShopDefinition.RuntimeCategory category : runtimeData.categories()) {
-            visibleOfferCount += category.offers().size();
+        if (metrics != null) {
+            metrics.buildOfferStatesNanos = System.nanoTime() - phaseStartNanos;
         }
-        return visibleOfferCount;
-    }
 
-    private static long findNextVisibleRestockAtMillis(ShopDefinition.RuntimeShopData runtimeData) {
-        long nextRestockAtMillis = Long.MAX_VALUE;
-        for (ShopDefinition.RuntimeCategory category : runtimeData.categories()) {
-            for (ShopDefinition.RuntimeShopOfferEntry entry : category.offers()) {
-                PlayerShopStockData.RestockPreview preview = entry.restockPreview();
-                if (preview.hasNextRestock()) {
-                    nextRestockAtMillis = Math.min(nextRestockAtMillis, preview.nextRestockAtMillis());
-                }
-            }
+        phaseStartNanos = metrics == null ? 0L : System.nanoTime();
+        ClientUiSync.sendShopUiState(player, session.sessionUuid(), offers);
+        if (metrics != null) {
+            metrics.sendPayloadNanos = System.nanoTime() - phaseStartNanos;
         }
         return nextRestockAtMillis;
     }
@@ -1017,5 +1068,61 @@ public final class CommandShopSessions {
         private void setLastDimensionId(ResourceLocation lastDimensionId) {
             this.lastDimensionId = lastDimensionId;
         }
+    }
+
+    private static final class ShopUiSyncMetrics {
+        private long buildOfferStatesNanos;
+        private long sendPayloadNanos;
+    }
+
+    private static final class RefreshMetrics {
+        private long totalNanos;
+        private long resolveSessionShopNanos;
+        private long createRuntimeDataNanos;
+        private long createRuntimeDataContextNanos;
+        private long createRuntimeDataCandidateSelectionNanos;
+        private long createRuntimeDataMaterializationNanos;
+        private long refreshSessionShopNanos;
+        private long syncClientShopUiStateNanos;
+        private long syncClientShopUiStateBuildNanos;
+        private long syncClientShopUiStateSendNanos;
+        private long createRuntimeBankDataNanos;
+        private long syncClientBankConfigNanos;
+        private long updateSessionRefreshStateNanos;
+
+        private RefreshBreakdown toBreakdown() {
+            return new RefreshBreakdown(
+                    totalNanos,
+                    resolveSessionShopNanos,
+                    createRuntimeDataNanos,
+                    createRuntimeDataContextNanos,
+                    createRuntimeDataCandidateSelectionNanos,
+                    createRuntimeDataMaterializationNanos,
+                    refreshSessionShopNanos,
+                    syncClientShopUiStateNanos,
+                    syncClientShopUiStateBuildNanos,
+                    syncClientShopUiStateSendNanos,
+                    createRuntimeBankDataNanos,
+                    syncClientBankConfigNanos,
+                    updateSessionRefreshStateNanos
+            );
+        }
+    }
+
+    public record RefreshBreakdown(
+            long totalNanos,
+            long resolveSessionShopNanos,
+            long createRuntimeDataNanos,
+            long createRuntimeDataContextNanos,
+            long createRuntimeDataCandidateSelectionNanos,
+            long createRuntimeDataMaterializationNanos,
+            long refreshSessionShopNanos,
+            long syncClientShopUiStateNanos,
+            long syncClientShopUiStateBuildNanos,
+            long syncClientShopUiStateSendNanos,
+            long createRuntimeBankDataNanos,
+            long syncClientBankConfigNanos,
+            long updateSessionRefreshStateNanos
+    ) {
     }
 }

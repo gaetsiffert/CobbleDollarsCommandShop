@@ -138,6 +138,9 @@ Run both:
   - stages `bench-configs/heavy_shop_bank/perf_megastore`
   - cleans the staged runtime copy
   - uses `commandshops.projectDir` to find the repo root
+- `fr.cobbledollars.commandshops.shop.CommandShopSessions#measureRefreshPlayerSession`
+  - diagnostics-only entrypoint used by the perf harness
+  - captures refresh sub-step timings without changing the standard `refreshPlayerSession` benchmark contract
 
 ### Perf reports
 
@@ -150,7 +153,18 @@ Current outputs include:
 - `junit-runtime-v1.{md,json}`
 - `gametest-v2-open-heavy-shop.{md,json}`
 - `gametest-v2-refresh-heavy-shop.{md,json}`
+- `gametest-v2-refresh-heavy-shop-breakdown.{md,json}`
 - `gametest-v2-sell-heavy-bank.{md,json}`
+
+Use them differently:
+
+- `gametest-v2-refresh-heavy-shop`
+  - use this for before/after commit comparisons
+  - it is the stable top-level refresh benchmark
+- `gametest-v2-refresh-heavy-shop-breakdown`
+  - use this to explain where refresh time is spent inside one revision
+  - current phases include `resolveSessionShop`, `createRuntimeData`, `refreshSessionShop`, `syncClientShopUiState`, and `updateSessionRefreshState`
+  - do not treat this breakdown report as the primary historical comparison target
 
 ## Infrastructure decisions
 

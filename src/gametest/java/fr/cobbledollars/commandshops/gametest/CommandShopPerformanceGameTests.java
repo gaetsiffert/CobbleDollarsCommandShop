@@ -120,6 +120,20 @@ public final class CommandShopPerformanceGameTests {
             if (!Files.isRegularFile(report.resolveSibling("gametest-v2-refresh-heavy-shop.json"))) {
                 throw new IllegalStateException("The refresh perf JSON report was not created.");
             }
+
+            List<PerfHarness.Measurement> breakdownMeasurements =
+                    captureRefreshBreakdownMeasurements(player, BenchConfigSupport.HEAVY_BENCHMARK_SHOP_ID, 3, 20);
+            Path breakdownReport = PerfHarness.writeReport(
+                    "gametest-v2-refresh-heavy-shop-breakdown",
+                    "CommandShops GameTest Performance (v2) - refreshPlayerSession breakdown",
+                    breakdownMeasurements
+            );
+            if (!Files.isRegularFile(breakdownReport)) {
+                throw new IllegalStateException("The refresh breakdown markdown report was not created.");
+            }
+            if (!Files.isRegularFile(breakdownReport.resolveSibling("gametest-v2-refresh-heavy-shop-breakdown.json"))) {
+                throw new IllegalStateException("The refresh breakdown JSON report was not created.");
+            }
         } catch (Exception exception) {
             helper.fail("Refresh heavy shop perf GameTest failed: " + exception.getMessage());
             return;
@@ -237,5 +251,59 @@ public final class CommandShopPerformanceGameTests {
 
     private static boolean isPerfRun() {
         return Boolean.getBoolean("commandshops.perfGametests");
+    }
+
+    private static List<PerfHarness.Measurement> captureRefreshBreakdownMeasurements(
+            GameTestPlayer player,
+            String shopId,
+            int warmupIterations,
+            int measuredIterations
+    ) {
+        for (int index = 0; index < warmupIterations; index++) {
+            CommandShopSessions.measureRefreshPlayerSession(player);
+            requireShopMenu(player);
+        }
+
+        long[] totalNanos = new long[measuredIterations];
+        long[] resolveSessionShopNanos = new long[measuredIterations];
+        long[] createRuntimeDataNanos = new long[measuredIterations];
+        long[] createRuntimeDataContextNanos = new long[measuredIterations];
+        long[] createRuntimeDataCandidateSelectionNanos = new long[measuredIterations];
+        long[] createRuntimeDataMaterializationNanos = new long[measuredIterations];
+        long[] refreshSessionShopNanos = new long[measuredIterations];
+        long[] syncClientShopUiStateNanos = new long[measuredIterations];
+        long[] syncClientShopUiStateBuildNanos = new long[measuredIterations];
+        long[] syncClientShopUiStateSendNanos = new long[measuredIterations];
+        long[] updateSessionRefreshStateNanos = new long[measuredIterations];
+
+        for (int index = 0; index < measuredIterations; index++) {
+            CommandShopSessions.RefreshBreakdown breakdown = CommandShopSessions.measureRefreshPlayerSession(player);
+            requireShopMenu(player);
+            totalNanos[index] = breakdown.totalNanos();
+            resolveSessionShopNanos[index] = breakdown.resolveSessionShopNanos();
+            createRuntimeDataNanos[index] = breakdown.createRuntimeDataNanos();
+            createRuntimeDataContextNanos[index] = breakdown.createRuntimeDataContextNanos();
+            createRuntimeDataCandidateSelectionNanos[index] = breakdown.createRuntimeDataCandidateSelectionNanos();
+            createRuntimeDataMaterializationNanos[index] = breakdown.createRuntimeDataMaterializationNanos();
+            refreshSessionShopNanos[index] = breakdown.refreshSessionShopNanos();
+            syncClientShopUiStateNanos[index] = breakdown.syncClientShopUiStateNanos();
+            syncClientShopUiStateBuildNanos[index] = breakdown.syncClientShopUiStateBuildNanos();
+            syncClientShopUiStateSendNanos[index] = breakdown.syncClientShopUiStateSendNanos();
+            updateSessionRefreshStateNanos[index] = breakdown.updateSessionRefreshStateNanos();
+        }
+
+        return List.of(
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".total", warmupIterations, totalNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".resolveSessionShop", warmupIterations, resolveSessionShopNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".createRuntimeData", warmupIterations, createRuntimeDataNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".createRuntimeData.context", warmupIterations, createRuntimeDataContextNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".createRuntimeData.candidateSelection", warmupIterations, createRuntimeDataCandidateSelectionNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".createRuntimeData.materialization", warmupIterations, createRuntimeDataMaterializationNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".refreshSessionShop", warmupIterations, refreshSessionShopNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".syncClientShopUiState", warmupIterations, syncClientShopUiStateNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".syncClientShopUiState.build", warmupIterations, syncClientShopUiStateBuildNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".syncClientShopUiState.send", warmupIterations, syncClientShopUiStateSendNanos),
+                PerfHarness.summarizeSamples("sessions.refreshPlayerSession." + shopId + ".updateSessionRefreshState", warmupIterations, updateSessionRefreshStateNanos)
+        );
     }
 }
