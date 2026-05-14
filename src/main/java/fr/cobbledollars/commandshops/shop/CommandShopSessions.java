@@ -3,12 +3,14 @@ package fr.cobbledollars.commandshops.shop;
 import java.math.BigInteger;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.WeakHashMap;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.cobbledollars.commandshops.StackCountMath;
@@ -41,6 +43,8 @@ import net.minecraft.world.item.ItemStack;
 public final class CommandShopSessions {
     private static final Map<UUID, CommandShopSession> ACTIVE_SESSIONS = new HashMap<>();
     private static final Map<UUID, PendingShopOpen> PENDING_SHOP_OPENS = new HashMap<>();
+    private static final Map<ShopOfferDefinition, List<ShopUiStatePayload.BonusState>> ENCODED_BONUS_STATES =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CommandShopSessions() {
     }
@@ -74,8 +78,8 @@ public final class CommandShopSessions {
         CommandShopSession session = new CommandShopSession(shop.id(), sessionUuid, shopMenu.containerId);
         ACTIVE_SESSIONS.put(player.getUUID(), session);
         sendFullSync(player, session, runtimeShop);
-        syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
-        updateSessionRefreshState(server, player, session, shop);
+        long nextRestockAtMillis = syncClientShopUiState(player, session, runtimeData);
+        updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, nextRestockAtMillis);
     }
 
     public static void queueOpenShop(ServerPlayer player, ShopDefinition shop) {
@@ -109,7 +113,7 @@ public final class CommandShopSessions {
         Shop runtimeShop = runtimeData.shop();
         PlayerExtensionKt.openBank(player, createSessionHolder(session.sessionUuid(), runtimeShop));
         syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
-        updateSessionRefreshState(server, player, session, shop);
+        updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, Long.MAX_VALUE);
         return true;
     }
 
@@ -164,7 +168,7 @@ public final class CommandShopSessions {
         ResolvedShopOffer offerDefinition = currentRuntimeData.getResolvedOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (offerDefinition == null) {
             sendFullSync(player, session, currentRuntimeShop);
-            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
+            syncClientShopUiState(player, session, currentRuntimeData);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_UNAVAILABLE);
             return true;
         }
@@ -172,7 +176,7 @@ public final class CommandShopSessions {
         Offer expectedOffer = currentRuntimeData.getRuntimeOffer(packet.getCategoryIndex(), packet.getOfferIndex());
         if (expectedOffer == null || !expectedOffer.equalsWithoutStock(packet.getOffer())) {
             sendFullSync(player, session, currentRuntimeShop);
-            syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
+            syncClientShopUiState(player, session, currentRuntimeData);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_CHANGED);
             return true;
         }
@@ -186,12 +190,12 @@ public final class CommandShopSessions {
 
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
-            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
         if (currentStock > 0 && amount > currentStock) {
-            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
@@ -199,14 +203,14 @@ public final class CommandShopSessions {
         BigInteger totalPrice = expectedOffer.getPrice().multiply(BigInteger.valueOf(amount));
         BigInteger balance = PlayerExtensionKt.getCobbleDollars(player);
         if (balance.compareTo(totalPrice) < 0) {
-            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_MONEY);
             return true;
         }
 
         PurchaseExecutionPlan purchasePlan = buildPurchaseExecutionPlan(offerDefinition, expectedOffer, amount);
         if (purchasePlan == null) {
-            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.INVALID_AMOUNT);
             return true;
         }
@@ -215,7 +219,7 @@ public final class CommandShopSessions {
         InventorySnapshot inventorySnapshot = InventorySnapshot.capture(player);
         InventorySnapshot deliveredInventory = inventorySnapshot.planDelivery(purchasePlan.deliveries());
         if (deliveredInventory == null) {
-            resyncRejectedOfferState(player, session, currentRuntimeData, stockData, nowMillis, packet.getCategoryIndex(), packet.getOfferIndex());
+            resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
             return true;
         }
@@ -235,10 +239,10 @@ public final class CommandShopSessions {
             expectedOffer.setStock(updatedStock);
         }
         refreshSessionShop(player, session, currentRuntimeData.shop());
-        syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
+        long nextRestockAtMillis = syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
         ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
         TransactionAuditLogger.logBuySuccess(player, shop, offerDefinition, amount, totalPrice, bonusItems);
-        updateSessionRefreshState(server, player, session, shop);
+        updateSessionRefreshState(server, player, session, shop, currentRuntimeData, nowMillis, nextRestockAtMillis);
         return true;
     }
 
@@ -260,13 +264,13 @@ public final class CommandShopSessions {
         Shop runtimeShop = runtimeData.shop();
         if (isViewingSessionShop(player, session)) {
             refreshSessionShop(player, session, runtimeShop);
-            syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
-            updateSessionRefreshState(server, player, session, shop);
+            long nextRestockAtMillis = syncClientShopUiState(player, session, runtimeData);
+            updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, nextRestockAtMillis);
             return;
         }
         if (isViewingSessionBank(player, session)) {
             syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
-            updateSessionRefreshState(server, player, session, shop);
+            updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, Long.MAX_VALUE);
         }
     }
 
@@ -436,9 +440,16 @@ public final class CommandShopSessions {
         return holder != null && session.sessionUuid().equals(holder.getMerchantUUID());
     }
 
-    private static void updateSessionRefreshState(MinecraftServer server, ServerPlayer player, CommandShopSession session, ShopDefinition shop) {
+    private static void updateSessionRefreshState(
+            MinecraftServer server,
+            ServerPlayer player,
+            CommandShopSession session,
+            ShopDefinition shop,
+            ShopDefinition.RuntimeShopData runtimeData,
+            long nowMillis,
+            long nextRestockAtMillis
+    ) {
         long currentTick = server.getTickCount();
-        long nowMillis = System.currentTimeMillis();
         long timeOfDay = Math.floorMod(player.level().getDayTime(), 24000L);
         long nextRefreshTick = Long.MAX_VALUE;
 
@@ -448,9 +459,12 @@ public final class CommandShopSessions {
         nextRefreshTick = scheduleTick(nextRefreshTick, currentTick, shop.nextTimeRefreshDelayTicks(timeOfDay));
 
         if (shop.hasRestockingOffers()) {
-            long nextRestockAtMillis = PlayerShopStockData.get(server).findNextRestockAtMillis(player.getUUID(), shop, nowMillis);
-            if (nextRestockAtMillis != Long.MAX_VALUE) {
-                nextRefreshTick = Math.min(nextRefreshTick, currentTick + millisToTicks(nextRestockAtMillis - nowMillis));
+            long scheduledRestockAtMillis = nextRestockAtMillis;
+            if (scheduledRestockAtMillis == Long.MAX_VALUE && runtimeData != null) {
+                scheduledRestockAtMillis = findNextVisibleRestockAtMillis(runtimeData);
+            }
+            if (scheduledRestockAtMillis != Long.MAX_VALUE) {
+                nextRefreshTick = Math.min(nextRefreshTick, currentTick + millisToTicks(scheduledRestockAtMillis - nowMillis));
             }
         }
 
@@ -575,8 +589,6 @@ public final class CommandShopSessions {
             ServerPlayer player,
             CommandShopSession session,
             ShopDefinition.RuntimeShopData runtimeData,
-            PlayerShopStockData stockData,
-            long nowMillis,
             int categoryIndex,
             int offerIndex
     ) {
@@ -586,7 +598,7 @@ public final class CommandShopSessions {
         } else {
             sendStockUpdate(player, session, categoryIndex, offerIndex, runtimeOffer.getStock());
         }
-        syncClientShopUiState(player, session, runtimeData, stockData, nowMillis);
+        syncClientShopUiState(player, session, runtimeData);
     }
 
     private static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop, BankDefinition.RuntimeBankData runtimeBankData) {
@@ -599,7 +611,11 @@ public final class CommandShopSessions {
         }
     }
 
-    private static void syncClientShopUiState(
+    private static long syncClientShopUiState(ServerPlayer player, CommandShopSession session, ShopDefinition.RuntimeShopData runtimeData) {
+        return syncClientShopUiState(player, session, runtimeData, null, 0L);
+    }
+
+    private static long syncClientShopUiState(
             ServerPlayer player,
             CommandShopSession session,
             ShopDefinition.RuntimeShopData runtimeData,
@@ -607,21 +623,31 @@ public final class CommandShopSessions {
             long nowMillis
     ) {
         if (runtimeData == null) {
-            return;
+            return Long.MAX_VALUE;
         }
 
-        ArrayList<ShopUiStatePayload.OfferState> offers = new ArrayList<>();
         ShopDefinition shop = ShopRegistry.getShop(session.shopId());
         if (shop == null) {
-            return;
+            return Long.MAX_VALUE;
         }
 
+        ArrayList<ShopUiStatePayload.OfferState> offers = new ArrayList<>(countVisibleOffers(runtimeData));
+        long nextRestockAtMillis = Long.MAX_VALUE;
         for (int visibleCategoryIndex = 0; visibleCategoryIndex < runtimeData.categories().size(); visibleCategoryIndex++) {
             ShopDefinition.RuntimeCategory category = runtimeData.categories().get(visibleCategoryIndex);
             for (int visibleOfferIndex = 0; visibleOfferIndex < category.offers().size(); visibleOfferIndex++) {
                 ShopDefinition.RuntimeShopOfferEntry entry = category.offers().get(visibleOfferIndex);
                 Offer runtimeOffer = entry.runtimeOffer();
-                PlayerShopStockData.RestockPreview preview = stockData.previewNextRestock(player.getUUID(), shop, entry.resolvedOffer(), nowMillis);
+                PlayerShopStockData.RestockPreview preview = entry.restockPreview();
+                if (stockData != null) {
+                    PlayerShopStockData.OfferRuntimeState offerState =
+                            stockData.resolveOfferRuntimeState(player.getUUID(), shop, entry.resolvedOffer(), nowMillis);
+                    runtimeOffer.setStock(offerState.stock());
+                    preview = offerState.restockPreview();
+                }
+                if (preview.hasNextRestock()) {
+                    nextRestockAtMillis = Math.min(nextRestockAtMillis, preview.nextRestockAtMillis());
+                }
                 offers.add(new ShopUiStatePayload.OfferState(
                         visibleCategoryIndex,
                         visibleOfferIndex,
@@ -635,6 +661,28 @@ public final class CommandShopSessions {
         }
 
         ClientUiSync.sendShopUiState(player, session.sessionUuid(), offers);
+        return nextRestockAtMillis;
+    }
+
+    private static int countVisibleOffers(ShopDefinition.RuntimeShopData runtimeData) {
+        int visibleOfferCount = 0;
+        for (ShopDefinition.RuntimeCategory category : runtimeData.categories()) {
+            visibleOfferCount += category.offers().size();
+        }
+        return visibleOfferCount;
+    }
+
+    private static long findNextVisibleRestockAtMillis(ShopDefinition.RuntimeShopData runtimeData) {
+        long nextRestockAtMillis = Long.MAX_VALUE;
+        for (ShopDefinition.RuntimeCategory category : runtimeData.categories()) {
+            for (ShopDefinition.RuntimeShopOfferEntry entry : category.offers()) {
+                PlayerShopStockData.RestockPreview preview = entry.restockPreview();
+                if (preview.hasNextRestock()) {
+                    nextRestockAtMillis = Math.min(nextRestockAtMillis, preview.nextRestockAtMillis());
+                }
+            }
+        }
+        return nextRestockAtMillis;
     }
 
     private static String resolveRestockZoneId(PlayerShopStockData.RestockPreview preview) {
@@ -648,11 +696,24 @@ public final class CommandShopSessions {
     }
 
     private static List<ShopUiStatePayload.BonusState> encodeBonusStates(ResolvedShopOffer resolvedOffer) {
-        List<PurchaseBonusDefinition> purchaseBonuses = resolvedOffer.source().purchaseBonuses();
+        ShopOfferDefinition sourceOffer = resolvedOffer.source();
+        List<PurchaseBonusDefinition> purchaseBonuses = sourceOffer.purchaseBonuses();
         if (purchaseBonuses.isEmpty()) {
             return List.of();
         }
 
+        synchronized (ENCODED_BONUS_STATES) {
+            List<ShopUiStatePayload.BonusState> cachedStates = ENCODED_BONUS_STATES.get(sourceOffer);
+            if (cachedStates != null) {
+                return cachedStates;
+            }
+            List<ShopUiStatePayload.BonusState> encodedStates = createBonusStates(purchaseBonuses);
+            ENCODED_BONUS_STATES.put(sourceOffer, encodedStates);
+            return encodedStates;
+        }
+    }
+
+    private static List<ShopUiStatePayload.BonusState> createBonusStates(List<PurchaseBonusDefinition> purchaseBonuses) {
         ArrayList<ShopUiStatePayload.BonusState> bonusStates = new ArrayList<>(purchaseBonuses.size());
         for (PurchaseBonusDefinition purchaseBonus : purchaseBonuses) {
             ArrayList<ShopUiStatePayload.RewardState> rewards = new ArrayList<>(purchaseBonus.rewards().size());

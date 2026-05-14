@@ -31,7 +31,8 @@ public final class CommandShopStockGameTests {
     @GameTest(batch = "stock.interval_restock", timeoutTicks = 100, setupTicks = 1)
     @EmptyTemplate(value = "5x4x5", floor = true)
     public static void interval_restock_recovers_consumed_stock(ExtendedGameTestHelper helper) {
-        UUID playerUuid = UUID.fromString("4d7f4a62-8a17-4c45-a4fb-87e6d6c3b8d1");
+        GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        UUID playerUuid = player.getUUID();
         long anchorMillis = 1_700_000_000_000L;
 
         try {
@@ -79,6 +80,15 @@ public final class CommandShopStockGameTests {
             stockData.consumeStock(playerUuid, shop, offer, 2, anchorMillis);
             helper.assertValueEqual(1, stockData.resolveStock(playerUuid, shop, offer, anchorMillis),
                     "Stock was not consumed correctly.");
+
+            ShopDefinition.RuntimeShopOfferEntry runtimeEntry = shop.createRuntimeData(stockData, player, anchorMillis).getEntry(0, 0);
+            helper.assertTrue(runtimeEntry != null, "Expected a visible runtime shop offer entry.");
+            helper.assertTrue(runtimeEntry.restockPreview().hasNextRestock(),
+                    "Runtime shop data should carry the pending restock preview for visible offers.");
+            helper.assertValueEqual(anchorMillis + 1_000L, runtimeEntry.restockPreview().nextRestockAtMillis(),
+                    "Runtime shop data did not preserve the expected restock timestamp.");
+            helper.assertValueEqual(1, runtimeEntry.restockPreview().nextRestockAmount(),
+                    "Runtime shop data did not preserve the expected restock amount.");
 
             PlayerShopStockData.RestockPreview preview = stockData.previewNextRestock(playerUuid, shop, offer, anchorMillis);
             helper.assertTrue(preview.hasNextRestock(), "Expected a pending restock preview after consuming finite stock.");

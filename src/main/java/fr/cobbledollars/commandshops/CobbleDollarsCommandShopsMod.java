@@ -7,6 +7,7 @@ import fr.cobbledollars.commandshops.command.CommandShopCommands;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
+import fr.cobbledollars.commandshops.shop.TransactionAuditLogger;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
@@ -33,6 +34,7 @@ public class CobbleDollarsCommandShopsMod {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
+        TransactionAuditLogger.initialize();
         try {
             ShopRegistry.initialize(event.getServer().registryAccess());
             ShopFeedbackService.initialize();
@@ -60,6 +62,7 @@ public class CobbleDollarsCommandShopsMod {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        TransactionAuditLogger.shutdown();
         CommandShopSessions.cleanupAll();
         ShopFeedbackService.clear();
         ShopRegistry.clear();

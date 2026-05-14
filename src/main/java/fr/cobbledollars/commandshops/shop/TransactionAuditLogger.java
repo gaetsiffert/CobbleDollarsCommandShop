@@ -28,8 +28,25 @@ public final class TransactionAuditLogger {
             .resolve(CobbleDollarsCommandShopsMod.MODID)
             .resolve("transactions.jsonl");
     private static final Object LOCK = new Object();
+    private static final String LINE_SEPARATOR = System.lineSeparator();
+    private static Writer logWriter;
+    private static boolean logDirectoryReady;
 
     private TransactionAuditLogger() {
+    }
+
+    public static void initialize() {
+        synchronized (LOCK) {
+            closeWriterQuietly();
+            logDirectoryReady = false;
+        }
+    }
+
+    public static void shutdown() {
+        synchronized (LOCK) {
+            closeWriterQuietly();
+            logDirectoryReady = false;
+        }
     }
 
     public static void logBuySuccess(
@@ -121,14 +138,43 @@ public final class TransactionAuditLogger {
     private static void append(JsonObject event) {
         synchronized (LOCK) {
             try {
-                Files.createDirectories(LOG_FILE.getParent());
-                try (Writer writer = Files.newBufferedWriter(LOG_FILE, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
-                    GSON.toJson(event, writer);
-                    writer.write(System.lineSeparator());
-                }
+                Writer writer = getOrCreateWriter();
+                GSON.toJson(event, writer);
+                writer.write(LINE_SEPARATOR);
+                writer.flush();
             } catch (IOException exception) {
+                closeWriterQuietly();
                 CobbleDollarsCommandShopsMod.LOGGER.error("Failed to append transaction audit entry", exception);
             }
+        }
+    }
+
+    private static Writer getOrCreateWriter() throws IOException {
+        if (logWriter != null) {
+            return logWriter;
+        }
+        ensureLogDirectory();
+        logWriter = Files.newBufferedWriter(LOG_FILE, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+        return logWriter;
+    }
+
+    private static void ensureLogDirectory() throws IOException {
+        if (logDirectoryReady) {
+            return;
+        }
+        Files.createDirectories(LOG_FILE.getParent());
+        logDirectoryReady = true;
+    }
+
+    private static void closeWriterQuietly() {
+        if (logWriter == null) {
+            return;
+        }
+        try {
+            logWriter.close();
+        } catch (IOException ignored) {
+        } finally {
+            logWriter = null;
         }
     }
 

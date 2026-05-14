@@ -41,8 +41,8 @@ public final class ClientUiSync {
         PacketDistributor.sendToPlayer(
                 player,
                 BankUiStatePayload.fromOffers(
-                        List.copyOf(runtimeBankData.exactOffersByKey().values()),
-                        List.copyOf(runtimeBankData.genericOffersByItem().values())
+                        runtimeBankData.exactOffers(),
+                        runtimeBankData.genericOffers()
                 )
         );
     }

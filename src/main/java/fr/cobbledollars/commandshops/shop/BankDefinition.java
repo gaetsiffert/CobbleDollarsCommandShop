@@ -69,23 +69,26 @@ public final class BankDefinition {
                     continue;
                 }
                 for (ResolvedBankOffer resolvedOffer : offer.createResolvedOffers()) {
+                    Offer runtimeOffer = resolvedOffer.createRuntimeOffer();
+                    BankLookupKey displayKey = BankLookupKey.from(runtimeOffer.getItem());
                     BankOfferCandidate candidate = new BankOfferCandidate(
                             sourceOrder,
+                            displayKey,
                             resolvedOffer.matchKind(),
-                            resolvedOffer.createRuntimeOffer()
+                            runtimeOffer
                     );
                     if (candidate.kind() == ItemMatchAtom.Kind.STACK) {
-                        exactCandidates.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+                        exactCandidates.merge(candidate.displayKey(), candidate, BankDefinition::selectBetterCandidate);
                     } else {
                         genericCandidates.merge(candidate.offer().getItem().getItem(), candidate, BankDefinition::selectBetterCandidate);
                     }
-                    displayWinners.merge(BankLookupKey.from(candidate.offer().getItem()), candidate, BankDefinition::selectBetterCandidate);
+                    displayWinners.merge(candidate.displayKey(), candidate, BankDefinition::selectBetterCandidate);
                 }
                 sourceOrder++;
             }
         }
 
-        ArrayList<Offer> runtimeOffers = new ArrayList<>();
+        ArrayList<Offer> runtimeOffers = new ArrayList<>(displayWinners.size());
         IdentityHashMap<Offer, Boolean> includedOffers = new IdentityHashMap<>();
         for (BankOfferCandidate candidate : displayWinners.values()) {
             if (includedOffers.put(candidate.offer(), Boolean.TRUE) == null) {
@@ -93,15 +96,35 @@ public final class BankDefinition {
             }
         }
 
-        HashMap<BankLookupKey, Offer> exactOffersByKey = new HashMap<>();
+        HashMap<BankLookupKey, Offer> exactOffersByKey = new HashMap<>(exactCandidates.size());
         for (Map.Entry<BankLookupKey, BankOfferCandidate> entry : exactCandidates.entrySet()) {
             exactOffersByKey.put(entry.getKey(), entry.getValue().offer());
         }
-        HashMap<Item, Offer> genericOffersByItem = new HashMap<>();
+        HashMap<Item, Offer> genericOffersByItem = new HashMap<>(genericCandidates.size());
         for (Map.Entry<Item, BankOfferCandidate> entry : genericCandidates.entrySet()) {
             genericOffersByItem.put(entry.getKey(), entry.getValue().offer());
         }
-        return new RuntimeBankData(new Bank(runtimeOffers), Map.copyOf(exactOffersByKey), Map.copyOf(genericOffersByItem));
+        HashMap<Item, Map<DataComponentMap, Offer>> exactOffersByItem = new HashMap<>();
+        for (Map.Entry<BankLookupKey, Offer> entry : exactOffersByKey.entrySet()) {
+            exactOffersByItem
+                    .computeIfAbsent(entry.getKey().item(), ignored -> new HashMap<>())
+                    .put(entry.getKey().components(), entry.getValue());
+        }
+
+        HashMap<Item, Map<DataComponentMap, Offer>> immutableExactOffersByItem = new HashMap<>(exactOffersByItem.size());
+        for (Map.Entry<Item, Map<DataComponentMap, Offer>> entry : exactOffersByItem.entrySet()) {
+            immutableExactOffersByItem.put(entry.getKey(), Map.copyOf(entry.getValue()));
+        }
+
+        Map<Item, Map<DataComponentMap, Offer>> exactOffers = Map.copyOf(immutableExactOffersByItem);
+        Map<Item, Offer> genericOffers = Map.copyOf(genericOffersByItem);
+        return new RuntimeBankData(
+                new Bank(runtimeOffers),
+                exactOffers,
+                genericOffers,
+                List.copyOf(exactOffersByKey.values()),
+                List.copyOf(genericOffers.values())
+        );
     }
 
     public static Bank emptyBank() {
@@ -129,7 +152,7 @@ public final class BankDefinition {
     }
 
     public static RuntimeBankData emptyData() {
-        return new RuntimeBankData(emptyBank(), Map.of(), Map.of());
+        return new RuntimeBankData(emptyBank(), Map.of(), Map.of(), List.of(), List.of());
     }
 
     private static List<ConditionSet> collectConditions(ConditionSet bankConditions, List<BankCategoryDefinition> categories) {
@@ -166,14 +189,23 @@ public final class BankDefinition {
         return incoming.sourceOrder() < current.sourceOrder() ? incoming : current;
     }
 
-    private record BankOfferCandidate(int sourceOrder, ItemMatchAtom.Kind kind, Offer offer) {
+    private record BankOfferCandidate(int sourceOrder, BankLookupKey displayKey, ItemMatchAtom.Kind kind, Offer offer) {
     }
 
-    public record RuntimeBankData(Bank bank, Map<BankLookupKey, Offer> exactOffersByKey, Map<Item, Offer> genericOffersByItem) {
+    public record RuntimeBankData(
+            Bank bank,
+            Map<Item, Map<DataComponentMap, Offer>> exactOffersByItem,
+            Map<Item, Offer> genericOffersByItem,
+            List<Offer> exactOffers,
+            List<Offer> genericOffers
+    ) {
         public Offer get(ItemStack stack) {
-            Offer offer = exactOffersByKey.get(BankLookupKey.from(stack));
-            if (offer != null) {
-                return offer;
+            Map<DataComponentMap, Offer> exactOffers = exactOffersByItem.get(stack.getItem());
+            if (exactOffers != null) {
+                Offer offer = exactOffers.get(stack.getComponents());
+                if (offer != null) {
+                    return offer;
+                }
             }
             return genericOffersByItem.get(stack.getItem());
         }

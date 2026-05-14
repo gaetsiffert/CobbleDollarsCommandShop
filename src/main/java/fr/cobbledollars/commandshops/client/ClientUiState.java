@@ -982,11 +982,11 @@ public final class ClientUiState {
     private record SessionState(UUID sessionUuid, Map<OfferKey, ShopUiStatePayload.OfferState> offersByKey) {
     }
 
-    private record ClientBankState(Map<BankOfferKey, Offer> exactOffersByKey, Map<Item, Offer> genericOffersByItem, List<Offer> offers) {
+    private record ClientBankState(Map<Item, Map<DataComponentMap, Offer>> exactOffersByItem, Map<Item, Offer> genericOffersByItem, List<Offer> offers) {
         private static ClientBankState fromPayload(BankUiStatePayload payload) {
-            HashMap<BankOfferKey, Offer> exactOffers = new HashMap<>();
+            HashMap<Item, Map<DataComponentMap, Offer>> exactOffers = new HashMap<>();
             for (BankUiStatePayload.Entry entry : payload.exactOffers()) {
-                exactOffers.put(new BankOfferKey(entry.stack().getItem(), entry.stack().getComponents()), new Offer(entry.stack().copy(), entry.price(), -1));
+                putExactOffer(exactOffers, new Offer(entry.stack().copy(), entry.price(), -1));
             }
 
             HashMap<Item, Offer> genericOffers = new HashMap<>();
@@ -995,21 +995,37 @@ public final class ClientUiState {
             }
 
             LinkedHashMap<BankOfferKey, Offer> visibleOffers = new LinkedHashMap<>(exactOffers.size() + genericOffers.size());
-            for (Offer offer : exactOffers.values()) {
-                visibleOffers.put(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+            for (Map<DataComponentMap, Offer> offersByComponents : exactOffers.values()) {
+                for (Offer offer : offersByComponents.values()) {
+                    visibleOffers.put(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+                }
             }
             for (Offer offer : genericOffers.values()) {
                 visibleOffers.putIfAbsent(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
             }
-            return new ClientBankState(Map.copyOf(exactOffers), Map.copyOf(genericOffers), List.copyOf(visibleOffers.values()));
+
+            HashMap<Item, Map<DataComponentMap, Offer>> immutableExactOffers = new HashMap<>(exactOffers.size());
+            for (Map.Entry<Item, Map<DataComponentMap, Offer>> entry : exactOffers.entrySet()) {
+                immutableExactOffers.put(entry.getKey(), Map.copyOf(entry.getValue()));
+            }
+            return new ClientBankState(Map.copyOf(immutableExactOffers), Map.copyOf(genericOffers), List.copyOf(visibleOffers.values()));
         }
 
         private Offer get(ItemStack stack) {
-            Offer offer = exactOffersByKey.get(new BankOfferKey(stack.getItem(), stack.getComponents()));
-            if (offer != null) {
-                return offer;
+            Map<DataComponentMap, Offer> offersByComponents = exactOffersByItem.get(stack.getItem());
+            if (offersByComponents != null) {
+                Offer offer = offersByComponents.get(stack.getComponents());
+                if (offer != null) {
+                    return offer;
+                }
             }
             return genericOffersByItem.get(stack.getItem());
+        }
+
+        private static void putExactOffer(Map<Item, Map<DataComponentMap, Offer>> exactOffers, Offer offer) {
+            exactOffers
+                    .computeIfAbsent(offer.getItem().getItem(), ignored -> new HashMap<>())
+                    .put(offer.getItem().getComponents(), offer);
         }
     }
 

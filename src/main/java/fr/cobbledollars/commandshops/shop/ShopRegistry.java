@@ -56,7 +56,7 @@ public final class ShopRegistry {
     }
 
     public static List<String> listShopIds() {
-        return state.shops().keySet().stream().sorted().toList();
+        return state.sortedShopIds();
     }
 
     public static ShopAccessResult evaluateAccess(MinecraftServer server, ShopDefinition shop, ServerPlayer player) {
@@ -113,7 +113,7 @@ public final class ShopRegistry {
         }
 
         BankDefinition globalBank = BankFiles.loadGlobalBank(provider);
-        return new RegistryState(Map.copyOf(shops), Map.copyOf(shopBanks), globalBank);
+        return new RegistryState(Map.copyOf(shops), Map.copyOf(shopBanks), globalBank, shops.keySet().stream().sorted().toList());
     }
 
     public record ReloadSummary(int shopCount, int localBankCount, Path globalBankFile) {
@@ -129,9 +129,9 @@ public final class ShopRegistry {
         }
     }
 
-    private record RegistryState(Map<String, ShopDefinition> shops, Map<String, BankDefinition> shopBanks, BankDefinition globalBank) {
+    private record RegistryState(Map<String, ShopDefinition> shops, Map<String, BankDefinition> shopBanks, BankDefinition globalBank, List<String> sortedShopIds) {
         private static RegistryState empty() {
-            return new RegistryState(Map.of(), Map.of(), new BankDefinition(List.of(), ConditionSet.NONE, BankFiles.getGlobalBankFile()));
+            return new RegistryState(Map.of(), Map.of(), new BankDefinition(List.of(), ConditionSet.NONE, BankFiles.getGlobalBankFile()), List.of());
         }
     }
 

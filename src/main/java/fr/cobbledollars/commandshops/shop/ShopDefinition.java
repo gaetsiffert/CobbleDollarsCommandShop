@@ -24,6 +24,7 @@ public final class ShopDefinition {
     private final Path sourceFile;
     private final Map<String, ShopOfferDefinition> offersById;
     private final List<ShopOfferDefinition> offersInOrder;
+    private final List<String> sortedOfferIds;
     private final List<ConditionSet> allConditions;
     private final boolean hasPlayerStateConditions;
     private final boolean hasDimensionConditions;
@@ -38,6 +39,7 @@ public final class ShopDefinition {
         this.sourceFile = sourceFile;
         this.offersById = buildOfferMap(categories);
         this.offersInOrder = buildOfferList(categories);
+        this.sortedOfferIds = offersById.keySet().stream().sorted().toList();
         this.allConditions = collectConditions(this.conditions, categories);
         this.hasPlayerStateConditions = allConditions.stream().anyMatch(ConditionSet::hasPlayerStateConditions);
         this.hasDimensionConditions = allConditions.stream().anyMatch(ConditionSet::hasDimensionConditions);
@@ -106,7 +108,7 @@ public final class ShopDefinition {
     }
 
     public List<String> offerIds() {
-        return offersById.keySet().stream().sorted().toList();
+        return sortedOfferIds;
     }
 
     public ShopOfferDefinition getOfferById(String offerId) {
@@ -202,8 +204,8 @@ public final class ShopDefinition {
             return new RuntimeShopData(runtimeShop, List.of());
         }
 
-        ArrayList<SourceCategoryCandidates> categoryContexts = new ArrayList<>();
-        ArrayList<ResolvedShopCandidate> allCandidates = new ArrayList<>();
+        ArrayList<SourceCategoryCandidates> categoryContexts = new ArrayList<>(categories.size());
+        HashMap<ShopDisplayKey, ResolvedShopCandidate> winners = new HashMap<>();
         int sourceOrder = 0;
         for (ShopCategoryDefinition categoryDefinition : categories) {
             if (!categoryDefinition.conditions().test(context)) {
@@ -216,34 +218,29 @@ public final class ShopDefinition {
                     continue;
                 }
                 for (ResolvedShopOffer resolvedOffer : offerDefinition.createResolvedOffers()) {
-                    ResolvedShopCandidate candidate = new ResolvedShopCandidate(sourceOrder, resolvedOffer);
+                    ResolvedShopCandidate candidate = new ResolvedShopCandidate(displayKey(resolvedOffer.template()), sourceOrder, resolvedOffer);
                     categoryCandidates.add(candidate);
-                    allCandidates.add(candidate);
+                    winners.merge(candidate.displayKey(), candidate, ShopDefinition::selectBetterCandidate);
                 }
                 sourceOrder++;
             }
             categoryContexts.add(new SourceCategoryCandidates(categoryDefinition.name(), List.copyOf(categoryCandidates)));
         }
 
-        HashMap<ShopDisplayKey, ResolvedShopCandidate> winners = new HashMap<>();
-        for (ResolvedShopCandidate candidate : allCandidates) {
-            winners.merge(displayKey(candidate.offer().template()), candidate, ShopDefinition::selectBetterCandidate);
-        }
-
         UUID playerUuid = player.getUUID();
-        ArrayList<RuntimeCategory> runtimeCategories = new ArrayList<>();
+        ArrayList<RuntimeCategory> runtimeCategories = new ArrayList<>(categoryContexts.size());
         for (SourceCategoryCandidates categoryContext : categoryContexts) {
             ArrayList<Offer> cobbleOffers = new ArrayList<>(categoryContext.candidates().size());
             ArrayList<RuntimeShopOfferEntry> resolvedOffers = new ArrayList<>(categoryContext.candidates().size());
             for (ResolvedShopCandidate candidate : categoryContext.candidates()) {
-                if (winners.get(displayKey(candidate.offer().template())) != candidate) {
+                if (winners.get(candidate.displayKey()) != candidate) {
                     continue;
                 }
 
-                int stock = stockData.resolveStock(playerUuid, this, candidate.offer(), nowMillis);
-                Offer runtimeOffer = candidate.offer().createRuntimeOffer(stock);
+                PlayerShopStockData.OfferRuntimeState offerState = stockData.resolveOfferRuntimeState(playerUuid, this, candidate.offer(), nowMillis);
+                Offer runtimeOffer = candidate.offer().createRuntimeOffer(offerState.stock());
                 cobbleOffers.add(runtimeOffer);
-                resolvedOffers.add(new RuntimeShopOfferEntry(candidate.offer(), runtimeOffer));
+                resolvedOffers.add(new RuntimeShopOfferEntry(candidate.offer(), runtimeOffer, offerState.restockPreview()));
             }
             if (!cobbleOffers.isEmpty()) {
                 runtimeShop.add(new Category(categoryContext.name(), cobbleOffers));
@@ -272,7 +269,7 @@ public final class ShopDefinition {
     private record SourceCategoryCandidates(String name, List<ResolvedShopCandidate> candidates) {
     }
 
-    private record ResolvedShopCandidate(int sourceOrder, ResolvedShopOffer offer) {
+    private record ResolvedShopCandidate(ShopDisplayKey displayKey, int sourceOrder, ResolvedShopOffer offer) {
     }
 
     private record ShopDisplayKey(Item item, DataComponentMap components) {
@@ -304,6 +301,6 @@ public final class ShopDefinition {
     public record RuntimeCategory(String name, List<RuntimeShopOfferEntry> offers) {
     }
 
-    public record RuntimeShopOfferEntry(ResolvedShopOffer resolvedOffer, Offer runtimeOffer) {
+    public record RuntimeShopOfferEntry(ResolvedShopOffer resolvedOffer, Offer runtimeOffer, PlayerShopStockData.RestockPreview restockPreview) {
     }
 }
