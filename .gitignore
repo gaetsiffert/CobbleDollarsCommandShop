@@ -35,6 +35,7 @@ bin/
 ### Minecraft Modding ###
 run/*
 run-gametest/
+run-gametest-perf/
 logs/
 !**/src/**/run/
 **/src/generated/**/.cache/

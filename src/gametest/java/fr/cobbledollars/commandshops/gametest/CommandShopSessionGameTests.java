@@ -1,14 +1,18 @@
 package fr.cobbledollars.commandshops.gametest;
 
+import java.math.BigInteger;
 import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import fr.cobbledollars.commandshops.shop.ShopVisibilityData;
+import fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt;
 import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.testframework.annotation.ForEachTest;
@@ -91,6 +95,89 @@ public final class CommandShopSessionGameTests {
             return;
         } finally {
             visibilityData.enable("general_store");
+        }
+
+        helper.succeed();
+    }
+
+    @TestHolder(
+            value = "selling_from_custom_bank_credits_player_and_keeps_unsellable_items",
+            title = "Selling from custom bank credits player",
+            description = "Builds a local shop and bank, sells one accepted stack plus one rejected stack, and verifies only the accepted items are converted to money."
+    )
+    @GameTest(batch = "sessions.sell_bank", timeoutTicks = 160, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void selling_from_custom_bank_credits_player_and_keeps_unsellable_items(ExtendedGameTestHelper helper) {
+        GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+
+        try {
+            CommandShopGameTestSupport.cleanupShop(CommandShopGameTestSupport.SELL_SHOP_ID);
+            CommandShopGameTestSupport.writeShopJson(CommandShopGameTestSupport.SELL_SHOP_ID, """
+                    {
+                      "categories": [
+                        {
+                          "name": "Default",
+                          "offers": [
+                            {
+                              "id": "entry_offer",
+                              "match": {
+                                "include": [
+                                  { "item": "minecraft:stone" }
+                                ]
+                              },
+                              "count": 1,
+                              "price": 1
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """);
+            CommandShopGameTestSupport.writeLocalBankJson(CommandShopGameTestSupport.SELL_SHOP_ID, """
+                    [
+                      {
+                        "match": {
+                          "include": [
+                            { "item": "minecraft:emerald" }
+                          ]
+                        },
+                        "price": 7
+                      }
+                    ]
+                    """);
+            CommandShopGameTestSupport.executeCommand(helper, "cdshops reload");
+
+            PlayerExtensionKt.setCobbleDollars(player, BigInteger.ZERO);
+            CommandShopSessions.openShop(player, ShopRegistry.getShop(CommandShopGameTestSupport.SELL_SHOP_ID));
+            helper.assertTrue(player.containerMenu instanceof ShopMenu, "Expected a shop menu after opening the sell test session.");
+
+            UUID merchantUuid = ((ShopMenu) player.containerMenu).getCobbleMerchant().getMerchantUUID();
+            helper.assertTrue(CommandShopSessions.openCustomBank(player, merchantUuid), "openCustomBank returned false for the sell test session.");
+            helper.assertTrue(player.containerMenu instanceof BankMenu, "Expected the sell test session to switch to a bank menu.");
+
+            BankMenu bankMenu = (BankMenu) player.containerMenu;
+            bankMenu.getBankContainer().setItem(0, new ItemStack(Items.EMERALD, 3));
+            bankMenu.getBankContainer().setItem(1, new ItemStack(Items.DIRT, 2));
+
+            helper.assertTrue(CommandShopSessions.handleCustomSell(helper.getLevel().getServer(), player),
+                    "handleCustomSell should succeed for an active custom bank session.");
+            helper.assertTrue(bankMenu.getBankContainer().getItem(0).isEmpty(),
+                    "Accepted items should be removed from the custom bank after a successful sell.");
+            helper.assertValueEqual(Items.DIRT, bankMenu.getBankContainer().getItem(1).getItem(),
+                    "Unsellable items should remain in the custom bank.");
+            helper.assertValueEqual(2, bankMenu.getBankContainer().getItem(1).getCount(),
+                    "Unsellable stack count should remain unchanged.");
+            helper.assertTrue(BigInteger.valueOf(21L).equals(PlayerExtensionKt.getCobbleDollars(player)),
+                    "The player did not receive the expected CobbleDollars amount.");
+        } catch (Exception exception) {
+            helper.fail("Sell bank session GameTest failed: " + exception.getMessage());
+            return;
+        } finally {
+            try {
+                CommandShopGameTestSupport.cleanupShop(CommandShopGameTestSupport.SELL_SHOP_ID);
+                ShopRegistry.reload(helper.getLevel().registryAccess());
+            } catch (Exception ignored) {
+            }
         }
 
         helper.succeed();

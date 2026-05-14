@@ -15,13 +15,25 @@ import net.neoforged.testframework.conf.FrameworkConfiguration;
 import net.neoforged.testframework.impl.MutableTestFramework;
 
 public final class CommandShopGameTestBootstrap {
-    private static final MutableTestFramework FRAMEWORK = FrameworkConfiguration.builder(
-            ResourceLocation.fromNamespaceAndPath(CobbleDollarsCommandShopsMod.MODID, "gametests")
-    ).build().create();
+    private static final MutableTestFramework FRAMEWORK = createFramework();
 
     private static boolean initialized;
 
     private CommandShopGameTestBootstrap() {
+    }
+
+    private static MutableTestFramework createFramework() {
+        FrameworkConfiguration.Builder builder = FrameworkConfiguration.builder(
+                ResourceLocation.fromNamespaceAndPath(CobbleDollarsCommandShopsMod.MODID, "gametests")
+        );
+        if (Boolean.getBoolean("commandshops.perfGametests")) {
+            builder.enableTests(
+                    "perf.open_heavy_shop_benchmark",
+                    "perf.refresh_heavy_shop_benchmark",
+                    "perf.sell_heavy_bank_benchmark"
+            );
+        }
+        return builder.build().create();
     }
 
     public static synchronized void init(ModContainer modContainer) {

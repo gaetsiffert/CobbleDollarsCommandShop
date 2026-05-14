@@ -27,8 +27,13 @@ sourceSets.main.resources {
 }
 
 sourceSets {
+    test {
+        java.srcDir('src/perf-common/java')
+    }
+
     gametest {
         java.srcDir('src/gametest/java')
+        java.srcDir('src/perf-common/java')
         resources.srcDir('src/gametest/resources')
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath
@@ -94,6 +99,13 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
+        perfGameTestServer {
+            type = "gameTestServer"
+            gameDirectory = project.file('run-gametest-perf')
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'commandshops.perfGametests', 'true'
+        }
+
         data {
             data()
 
@@ -112,6 +124,7 @@ neoForge {
             // "REGISTRIES": For firing of registry events.
             // "REGISTRYDUMP": For getting the contents of all registries.
             systemProperty 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'commandshops.projectDir', project.projectDir.absolutePath
 
             // Recommended logging level for the console
             // You can set various levels here.
@@ -239,7 +252,16 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('test', Test).configure {
-    useJUnitPlatform()
+    boolean includePerfTests = providers.gradleProperty('commandshops.includePerfTests')
+            .map { it.toBoolean() }
+            .getOrElse(false)
+    useJUnitPlatform {
+        if (includePerfTests) {
+            includeTags 'perf'
+        } else {
+            excludeTags 'perf'
+        }
+    }
     minHeapSize = '1G'
     maxHeapSize = '3G'
     systemProperty 'commandshops.projectDir', project.projectDir.absolutePath

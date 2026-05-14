@@ -1,6 +1,6 @@
 # Testing Strategy
 
-This repository uses three complementary test layers. Keep them all.
+This repository uses three complementary test layers plus a separate performance harness. Keep all of them.
 
 ## Test layers
 
@@ -15,6 +15,7 @@ Use these when the code under test is mostly deterministic business logic:
 - item match resolution
 - small helper classes
 - benchmark config invariants
+- focused persistence round-trips
 
 These tests should stay narrow, fast, and precise. They should not require a world, a player session, or a running server fixture unless that is the thing being tested.
 
@@ -34,17 +35,19 @@ Examples in this repo:
 Location: `src/test/java`  
 Marker: `@ExtendWith(EphemeralTestServerProvider.class)`
 
-Use these when the code needs a real NeoForge/Minecraft server bootstrap, but does not need a world-driven scenario or a real player.
+Use these when the code needs a real NeoForge/Minecraft server bootstrap, but does not need a world-driven scenario or a real player/menu flow.
 
 This is the right layer for:
 
 - `ShopRegistry`
 - registry-backed parsing
 - bootstrap-sensitive initialization
+- runtime services that only need the server process
 
 Examples in this repo:
 
 - `ShopRegistryServerTest`
+- `CommandShopPerformanceTest`
 
 ### 3. GameTests
 
@@ -57,6 +60,7 @@ Use these for end-to-end server flows:
 - active session lifecycle
 - stock changes driven through command/session code
 - menu transitions
+- player-bound runtime offer/bank resolution
 
 GameTests are the highest-fidelity layer in the repo today. They run on a dedicated `gameTestServer` launch and exercise the real server loop.
 
@@ -67,26 +71,86 @@ Examples in this repo:
 - `CommandShopStockGameTests`
 - `CommandShopSessionGameTests`
 - `CommandShopResolutionGameTests`
+- `CommandShopPerformanceGameTests`
 
 ## How the tasks map
 
-Run all JUnit tests:
+Run all standard JUnit tests:
 
 ```powershell
 ./gradlew.bat test
 ```
 
-Run all GameTests:
+Run all standard GameTests:
 
 ```powershell
 ./gradlew.bat runGameTestServer
 ```
 
-Run the full test pass:
+Run the full standard test pass:
 
 ```powershell
 ./gradlew.bat test runGameTestServer
 ```
+
+## Performance harness
+
+The performance harness is intentionally separate from the standard suites. It exists to provide reproducible before/after measurements, not hard CI gates.
+
+### Perf commands
+
+Run JUnit perf:
+
+```powershell
+./gradlew.bat test "-Pcommandshops.includePerfTests=true" --no-configuration-cache
+```
+
+Run GameTest perf:
+
+```powershell
+./gradlew.bat runPerfGameTestServer
+```
+
+Run both:
+
+```powershell
+./gradlew.bat test "-Pcommandshops.includePerfTests=true" --no-configuration-cache
+./gradlew.bat runPerfGameTestServer
+```
+
+### Perf source layout
+
+- `src/perf-common/java`
+  - shared helpers for JUnit perf and GameTest perf
+  - not part of the shipped mod jar
+- `src/test/java`
+  - JUnit perf entrypoints
+- `src/gametest/java`
+  - GameTest perf entrypoints
+
+### Perf helpers
+
+- `fr.cobbledollars.commandshops.perf.PerfHarness`
+  - warmup + measured iterations
+  - min / avg / median / p95 / max
+  - markdown + json report output
+- `fr.cobbledollars.commandshops.perf.BenchConfigSupport`
+  - stages `bench-configs/heavy_shop_bank/perf_megastore`
+  - cleans the staged runtime copy
+  - uses `commandshops.projectDir` to find the repo root
+
+### Perf reports
+
+Reports are written to:
+
+- `build/reports/perf/`
+
+Current outputs include:
+
+- `junit-runtime-v1.{md,json}`
+- `gametest-v2-open-heavy-shop.{md,json}`
+- `gametest-v2-refresh-heavy-shop.{md,json}`
+- `gametest-v2-sell-heavy-bank.{md,json}`
 
 ## Infrastructure decisions
 
@@ -108,8 +172,9 @@ Important points:
 - `CommandShopGameTestBootstrap` registers the test framework and commands
 - `@EmptyTemplate` is used so we do not have to maintain `.nbt` structure files for these tests
 - `runGameTestServer` uses `run-gametest` as its game directory
+- `runPerfGameTestServer` uses `run-gametest-perf`
 
-The separate game directory is intentional. It avoids pollution from `run/mods` and keeps GameTests reproducible.
+The separate game directories are intentional. They avoid pollution from `run/mods` and keep GameTests reproducible.
 
 ## Repo-specific rules
 
@@ -119,7 +184,7 @@ The separate game directory is intentional. It avoids pollution from `run/mods` 
 
 Any test that writes `shop.json` or `bank.json` must:
 
-- use a unique temporary shop id
+- use a unique temporary shop id or the dedicated benchmark id
 - clean up the created folder
 - reload or clear the registry when needed
 
@@ -176,14 +241,63 @@ Prefer using this helper instead of duplicating filesystem and command boilerpla
 Use this rule:
 
 1. If it is pure logic or parsing, write a logic-focused JUnit test.
-2. If it needs a real server bootstrap but not a world or player, write a runtime JUnit test.
+2. If it needs a real server bootstrap but not a world/player flow, write a runtime JUnit test.
 3. If it must prove an actual flow works through commands, ticks, players, menus, or sessions, write a GameTest.
+4. If it is performance-sensitive, place the measurement in the perf harness instead of the standard regression suite.
 
 Examples:
 
 - invalid `restock` JSON: logic-focused JUnit
 - `ShopVisibilityData` save/load: logic-focused JUnit with reflective `load(...)`
 - `/cdshops open` opening a real `ShopMenu`: GameTest
+- heavy benchmark reload/parse timing: JUnit perf
+- heavy benchmark `openShop` / `refreshPlayerSession` / `handleCustomSell`: GameTest perf
+
+## Observations and constraints
+
+These are important implementation observations, not theory.
+
+### `EphemeralTestServerProvider` is not a world/player substitute
+
+The NeoForge runtime JUnit fixture is useful for bootstrap-sensitive tests, but it is not a good replacement for a real GameTest world.
+
+Observed limitations during implementation:
+
+- do not assume `server.overworld()` is usable in this fixture
+- do not assume a practical `ServerPlayer` context exists
+- do not push player/menu/session benchmarks into this layer
+
+This is why the JUnit perf harness was intentionally narrowed to:
+
+- `ShopRegistry.reload(...)`
+- `ShopFiles.parseShopFile(...)`
+- `BankFiles.loadBankFile(...)`
+
+And why the player-bound runtime measurements live in GameTests instead.
+
+### NeoForge still collects the perf GameTests in standard runs
+
+Even with `enabledByDefault = false`, the framework still discovers the perf GameTest classes during `runGameTestServer`.
+
+To keep the standard suite clean:
+
+- `runPerfGameTestServer` sets `commandshops.perfGametests=true`
+- the perf GameTests return immediately when that property is absent
+
+This means standard runs still see those test ids, but they do not execute the benchmark body outside the dedicated perf run.
+
+### Perf results are informational, not CI gates
+
+Do not attach hard timing thresholds to these measurements yet.
+
+Reasons:
+
+- machine variance
+- JVM warmup variance
+- mod bootstrap variance
+- third-party mod load cost
+
+Use the reports to compare before/after changes and to decide what to optimize next.
 
 ## Adding new tests
 
@@ -197,8 +311,8 @@ Examples:
 
 - use `EphemeralTestServerProvider`
 - keep them focused on registry/bootstrap concerns
-- do not assume `server.overworld()` or a usable `ServerPlayer` exists in this fixture
-- if the assertion needs `SavedData.get(server)`, a real player, or menu/session state, move it to a GameTest or convert it to a focused persistence test
+- do not assume a usable world or real player context exists
+- if the assertion needs `SavedData.get(server)`, a real player, inventory menus, or session state, move it to a GameTest or convert it to a focused persistence test
 
 ### For GameTests
 
@@ -206,6 +320,20 @@ Examples:
 - use `helper.startSequence()` for queued or delayed flows
 - separate tests into batches when they mutate shared global state
 - prefer direct assertions on menus, stock, registry state, or saved data over log inspection
+
+### For perf JUnit tests
+
+- mark them with `@Tag("perf")`
+- keep them server/bootstrap focused
+- prefer parsing/reload/config-heavy code here
+- write reports through `PerfHarness.writeReport(...)`
+
+### For perf GameTests
+
+- keep them under the dedicated perf class or a dedicated perf package
+- guard execution behind `commandshops.perfGametests`
+- keep setup outside the measured loop whenever possible
+- keep at least one functional assertion inside the measured scenario
 
 ## Current coverage summary
 
@@ -218,10 +346,11 @@ Current coverage is intentionally strongest on:
 - command registration and selected command flows
 - session open/bank/close transitions
 - runtime offer precedence with a real player context
+- heavy benchmark reload/parse/open/refresh/sell measurements
 
 Still lighter than ideal:
 
-- full `buy` and `sell` end-to-end flows
+- full `buy` and `sell` end-to-end coverage across more edge cases
 - client UI state/rendering
 - packet-level assertions
 

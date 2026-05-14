@@ -17,6 +17,7 @@ final class CommandShopGameTestSupport {
     static final String INVALID_SHOP_ID = "gametest_invalid_shop";
     static final String COMMAND_RELOAD_SHOP_ID = "gametest_command_reload_shop";
     static final String STOCK_SHOP_ID = "gametest_stock_shop";
+    static final String SELL_SHOP_ID = "gametest_sell_shop";
 
     private CommandShopGameTestSupport() {
     }
