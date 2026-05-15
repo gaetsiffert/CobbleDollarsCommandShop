@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.cobbledollars.commandshops.StackCountMath;
+import fr.cobbledollars.commandshops.audit.AuditLogService;
 import fr.cobbledollars.commandshops.feedback.BuyFailureReason;
 import fr.cobbledollars.commandshops.feedback.SellFailureReason;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
@@ -155,6 +156,7 @@ public final class CommandShopSessions {
         if (offerDefinition == null) {
             ShopSessionSyncService.sendFullSync(player, session, currentRuntimeData);
             ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData);
+            AuditLogService.logBuyFailure(player, shop, null, BuyFailureReason.OFFER_UNAVAILABLE, packet.getAmount(), null, null);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_UNAVAILABLE);
             return true;
         }
@@ -163,12 +165,22 @@ public final class CommandShopSessions {
         if (expectedOffer == null || !expectedOffer.equalsWithoutStock(packet.getOffer())) {
             ShopSessionSyncService.sendFullSync(player, session, currentRuntimeData);
             ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData);
+            AuditLogService.logBuyFailure(
+                    player,
+                    shop,
+                    offerDefinition,
+                    BuyFailureReason.OFFER_CHANGED,
+                    packet.getAmount(),
+                    expectedOffer == null ? null : expectedOffer.getStock(),
+                    packet.getAmount() > 0 && expectedOffer != null ? expectedOffer.getPrice().multiply(BigInteger.valueOf(packet.getAmount())) : null
+            );
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OFFER_CHANGED);
             return true;
         }
 
         int requestedAmount = packet.getAmount();
         if (requestedAmount <= 0) {
+            AuditLogService.logBuyFailure(player, shop, offerDefinition, BuyFailureReason.INVALID_AMOUNT, requestedAmount, null, null);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.INVALID_AMOUNT);
             return true;
         }
@@ -177,11 +189,29 @@ public final class CommandShopSessions {
         int currentStock = expectedOffer.getStock();
         if (currentStock == 0) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
+            AuditLogService.logBuyFailure(
+                    player,
+                    shop,
+                    offerDefinition,
+                    BuyFailureReason.OUT_OF_STOCK,
+                    amount,
+                    currentStock,
+                    expectedOffer.getPrice().multiply(BigInteger.valueOf(amount))
+            );
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
         if (currentStock > 0 && amount > currentStock) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
+            AuditLogService.logBuyFailure(
+                    player,
+                    shop,
+                    offerDefinition,
+                    BuyFailureReason.OUT_OF_STOCK,
+                    amount,
+                    currentStock,
+                    expectedOffer.getPrice().multiply(BigInteger.valueOf(amount))
+            );
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.OUT_OF_STOCK);
             return true;
         }
@@ -190,6 +220,7 @@ public final class CommandShopSessions {
         BigInteger balance = PlayerExtensionKt.getCobbleDollars(player);
         if (balance.compareTo(totalPrice) < 0) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
+            AuditLogService.logBuyFailure(player, shop, offerDefinition, BuyFailureReason.NOT_ENOUGH_MONEY, amount, currentStock, totalPrice);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_MONEY);
             return true;
         }
@@ -197,6 +228,7 @@ public final class CommandShopSessions {
         PurchaseExecutionPlan purchasePlan = buildPurchaseExecutionPlan(offerDefinition, expectedOffer, amount);
         if (purchasePlan == null) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
+            AuditLogService.logBuyFailure(player, shop, offerDefinition, BuyFailureReason.INVALID_AMOUNT, amount, currentStock, totalPrice);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.INVALID_AMOUNT);
             return true;
         }
@@ -206,6 +238,7 @@ public final class CommandShopSessions {
         InventorySnapshot deliveredInventory = inventorySnapshot.planDelivery(purchasePlan.deliveries());
         if (deliveredInventory == null) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
+            AuditLogService.logBuyFailure(player, shop, offerDefinition, BuyFailureReason.NOT_ENOUGH_SPACE, amount, currentStock, totalPrice);
             ShopFeedbackService.onBuyFailure(player, BuyFailureReason.NOT_ENOUGH_SPACE);
             return true;
         }
@@ -227,7 +260,16 @@ public final class CommandShopSessions {
         ShopSessionSyncService.refreshSessionShop(player, session, currentRuntimeData);
         long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
         ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
-        TransactionAuditLogger.logBuySuccess(player, shop, offerDefinition, amount, totalPrice, bonusItems);
+        AuditLogService.logBuySuccess(
+                player,
+                shop,
+                offerDefinition,
+                amount,
+                totalPrice,
+                bonusItems,
+                offerDefinition.hasFiniteStock() ? currentStock : null,
+                updatedStock >= 0 ? updatedStock : null
+        );
         updateSessionRefreshState(server, player, session, shop, currentRuntimeData, nowMillis, nextRestockAtMillis);
         return true;
     }
@@ -397,7 +439,7 @@ public final class CommandShopSessions {
         SimpleContainer bankContainer = bankMenu.getBankContainer();
         BigInteger totalValue = BigInteger.ZERO;
         int soldItemCount = 0;
-        ArrayList<TransactionAuditLogger.SoldItemLine> soldItems = new ArrayList<>();
+        ArrayList<AuditLogService.SoldItemLine> soldItems = new ArrayList<>();
         try {
             var bankData = ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player);
             for (int slot = 0; slot < bankContainer.getContainerSize(); slot++) {
@@ -414,7 +456,7 @@ public final class CommandShopSessions {
                 BigInteger lineTotal = offer.getPrice().multiply(BigInteger.valueOf(stack.getCount()));
                 totalValue = totalValue.add(lineTotal);
                 soldItemCount += stack.getCount();
-                soldItems.add(new TransactionAuditLogger.SoldItemLine(stack.copy(), offer.getPrice(), lineTotal));
+                soldItems.add(new AuditLogService.SoldItemLine(stack.copy(), offer.getPrice(), lineTotal));
                 bankContainer.setItem(slot, ItemStack.EMPTY);
             }
         } catch (Exception exception) {
@@ -426,8 +468,9 @@ public final class CommandShopSessions {
         if (totalValue.signum() > 0) {
             PlayerExtensionKt.setCobbleDollars(player, PlayerExtensionKt.getCobbleDollars(player).add(totalValue));
             ShopFeedbackService.onSellSuccess(player, soldItemCount, totalValue);
-            TransactionAuditLogger.logSellSuccess(player, shop, soldItemCount, totalValue, soldItems);
+            AuditLogService.logSellSuccess(player, shop, soldItemCount, totalValue, soldItems);
         } else {
+            AuditLogService.logSellFailure(player, shop, SellFailureReason.NOTHING_SELLABLE);
             ShopFeedbackService.onSellFailure(player, SellFailureReason.NOTHING_SELLABLE);
         }
         bankContainer.setChanged();

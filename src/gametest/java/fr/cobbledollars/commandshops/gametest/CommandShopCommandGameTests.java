@@ -2,6 +2,7 @@ package fr.cobbledollars.commandshops.gametest;
 
 import java.io.IOException;
 
+import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.tree.CommandNode;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
@@ -37,6 +38,27 @@ public final class CommandShopCommandGameTests {
         helper.assertTrue(root.getChild("visibility") != null, "The /cdshops visibility subcommand is missing.");
         helper.assertTrue(root.getChild("list") != null, "The /cdshops list subcommand is missing.");
         helper.assertTrue(root.getChild("where") != null, "The /cdshops where subcommand is missing.");
+        helper.succeed();
+    }
+
+    @TestHolder(
+            value = "stats_item_command_accepts_namespaced_item_ids",
+            title = "Stats item command accepts namespaced item ids",
+            description = "Verifies that /cdshops stats item accepts standard namespaced item ids such as minecraft:bread."
+    )
+    @GameTest(batch = "commands.read_only", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void stats_item_command_accepts_namespaced_item_ids(ExtendedGameTestHelper helper) {
+        CommandSourceStack source = helper.getLevel().getServer().createCommandSourceStack().withPermission(4);
+        ParseResults<CommandSourceStack> parseResults = helper.getLevel().getServer()
+                .getCommands()
+                .getDispatcher()
+                .parse("cdshops stats item minecraft:bread", source);
+
+        helper.assertTrue(
+                parseResults.getExceptions().isEmpty(),
+                "The stats item command rejected a namespaced item id: " + parseResults.getExceptions()
+        );
         helper.succeed();
     }
 

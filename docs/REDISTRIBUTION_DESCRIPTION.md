@@ -38,6 +38,11 @@ If the same jar is installed on the client, the mod can also provide optional cl
 - `/cdshops visibility <shop> status`
 - `/cdshops visibility <shop> enable`
 - `/cdshops visibility <shop> disable [message]`
+- `/cdshops stats summary [window]`
+- `/cdshops stats top <shops|offers|players|items> [window] [limit]`
+- `/cdshops stats shop <shop> [window]`
+- `/cdshops stats player <player|uuid> [window]`
+- `/cdshops stats item <item> [window]`
 - `/cdshops list`
 - `/cdshops where`
 
@@ -48,6 +53,7 @@ On first server start, the mod generates its config files in:
 ```text
 config/cobbledollarscommandshops/
   CONFIG_GUIDE.md
+  audit.json
   feedback.json
   global_bank.json
   shops/
@@ -65,8 +71,10 @@ config/cobbledollarscommandshops/
 Transaction audit logs are written to:
 
 ```text
-logs/cobbledollarscommandshops/transactions.jsonl
+logs/cobbledollarscommandshops/audit.jsonl
 ```
+
+The `/cdshops stats ...` admin commands read this file directly.
 
 ## Important files for writing shops and banks
 

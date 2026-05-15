@@ -9,6 +9,7 @@ Older examples that put `item`, `stack`, or `tag` directly on an offer are obsol
 ```text
 config/cobbledollarscommandshops/
   CONFIG_GUIDE.md
+  audit.json
   feedback.json
   global_bank.json
   shops/
@@ -39,6 +40,11 @@ If `shops/<shop_id>/bank.json` exists, that file is used instead of the global b
 - `/cdshops visibility <shop> status`
 - `/cdshops visibility <shop> enable`
 - `/cdshops visibility <shop> disable [message]`
+- `/cdshops stats summary [window]`
+- `/cdshops stats top <shops|offers|players|items> [window] [limit]`
+- `/cdshops stats shop <shop> [window]`
+- `/cdshops stats player <player|uuid> [window]`
+- `/cdshops stats item <item> [window]`
 - `/cdshops list`
 - `/cdshops where`
 
@@ -494,6 +500,35 @@ Sound values can be either:
 
 Built-in feedback text uses the player's language when the client supports this mod, or the normal Minecraft translation system for server-side messages. This project ships `en_us` and `fr_fr`.
 
+## Audit Configuration
+
+`audit.json` controls server-side audit logging.
+It can disable the whole feature, enable or disable individual event types, and decide whether each appended JSON line is flushed immediately.
+
+```json
+{
+  "enabled": true,
+  "flush_each_entry": true,
+  "events": {
+    "buy_success": true,
+    "buy_failure": false,
+    "sell_success": true,
+    "sell_failure": false,
+    "visibility_changed": true
+  }
+}
+```
+
+Audit entries are appended as JSON Lines to `logs/cobbledollarscommandshops/audit.jsonl`.
+The `/cdshops stats ...` admin commands read this file on demand.
+The current schema logs:
+
+- `buy_success`
+- `buy_failure`
+- `sell_success`
+- `sell_failure`
+- `visibility_changed`
+
 ## Optional Client Layer
 
 If the same jar is installed on the client, this mod adds a thin CobbleDollars UI layer without moving any gameplay authority to the client.
@@ -520,5 +555,5 @@ Without the client layer:
 - `mod` matches item registry namespaces.
 - `match.exclude` only removes items from the current rule. A later rule can reintroduce them.
 - Shop visibility overrides are stored server-side and controlled with `/cdshops visibility ...`.
-- Successful buys, sells, and visibility changes are appended to `logs/cobbledollarscommandshops/transactions.jsonl`.
+- Audit events enabled in `audit.json` are appended to `logs/cobbledollarscommandshops/audit.jsonl`.
 - License terms are in the root `LICENSE` file and are bundled into the built jar.
