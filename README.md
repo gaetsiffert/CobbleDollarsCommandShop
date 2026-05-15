@@ -23,18 +23,28 @@ It does not replace CobbleDollars, replace CobbleDollars NPCs, or move gameplay 
 
 ## Commands
 
+Public commands:
+
 - `/cdshops open <shop>`
-- `/cdshops open <shop> <player>`
+- `/cdshops list`
+- `/cdshops visibility list`
+
+Admin commands (`permission level 2`):
+
+- `/cdshops open <shop> <targets>`
 - `/cdshops reload`
 - `/cdshops restock <shop> all <players>`
 - `/cdshops restock <shop> offer <offer> <players>`
 - `/cdshops stock <shop> <player>`
-- `/cdshops visibility list`
 - `/cdshops visibility <shop> status`
 - `/cdshops visibility <shop> enable`
 - `/cdshops visibility <shop> disable [message]`
-- `/cdshops list`
 - `/cdshops where`
+- `/cdshops stats summary [window]`
+- `/cdshops stats top <shops|offers|players|items> [window] [limit]`
+- `/cdshops stats shop <shop> [window]`
+- `/cdshops stats player <player|uuid> [window]`
+- `/cdshops stats item <item> [window]`
 
 ## Config
 
@@ -47,6 +57,7 @@ On first server start, the mod generates the default config tree:
 ```text
 config/cobbledollarscommandshops/
   CONFIG_GUIDE.md
+  audit.json
   feedback.json
   global_bank.json
   shops/
@@ -63,15 +74,15 @@ config/cobbledollarscommandshops/
 
 The detailed format reference is available in the repository at:
 
-`CONFIG_GUIDE.md`
+`docs/CONFIG_GUIDE.md`
 
 The same guide is also generated at runtime in:
 
 `config/cobbledollarscommandshops/CONFIG_GUIDE.md`
 
-Transaction audit logs are written to:
+Audit logs are written to:
 
-`logs/cobbledollarscommandshops/transactions.jsonl`
+`logs/cobbledollarscommandshops/audit.jsonl`
 
 ## Benchmark Configs
 

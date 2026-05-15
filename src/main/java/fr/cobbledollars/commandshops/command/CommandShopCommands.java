@@ -37,7 +37,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 import java.io.IOException;
@@ -56,19 +55,21 @@ public final class CommandShopCommands {
 
     public static void register(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("cdshops")
-                .requires(CommandShopCommands::canUseCommand)
                 .then(Commands.literal("open")
                         .then(Commands.argument("shop", StringArgumentType.word())
                                 .suggests(CommandShopCommands::suggestShopIds)
                                 .executes(context -> openForImplicitTarget(context.getSource(), StringArgumentType.getString(context, "shop")))
                                 .then(Commands.argument("targets", EntityArgument.players())
+                                        .requires(CommandShopCommands::canUseCommand)
                                         .executes(context -> openForTargets(
                                                 context.getSource(),
                                                 StringArgumentType.getString(context, "shop"),
                                                 EntityArgument.getPlayers(context, "targets"))))))
                 .then(Commands.literal("reload")
+                        .requires(CommandShopCommands::canUseCommand)
                         .executes(context -> reload(context.getSource())))
                 .then(Commands.literal("restock")
+                        .requires(CommandShopCommands::canUseCommand)
                         .then(Commands.argument("shop", StringArgumentType.word())
                                 .suggests(CommandShopCommands::suggestShopIds)
                                 .then(Commands.literal("all")
@@ -87,6 +88,7 @@ public final class CommandShopCommands {
                                                                 StringArgumentType.getString(context, "offer"),
                                                                 EntityArgument.getPlayers(context, "targets"))))))))
                 .then(Commands.literal("stock")
+                        .requires(CommandShopCommands::canUseCommand)
                         .then(Commands.argument("shop", StringArgumentType.word())
                                 .suggests(CommandShopCommands::suggestShopIds)
                                 .then(Commands.argument("target", EntityArgument.player())
@@ -98,6 +100,7 @@ public final class CommandShopCommands {
                         .then(Commands.literal("list")
                                 .executes(context -> listVisibility(context.getSource())))
                         .then(Commands.argument("shop", StringArgumentType.word())
+                                .requires(CommandShopCommands::canUseCommand)
                                 .suggests(CommandShopCommands::suggestShopIds)
                                 .then(Commands.literal("enable")
                                         .executes(context -> enableVisibility(
@@ -120,8 +123,9 @@ public final class CommandShopCommands {
                 .then(Commands.literal("list")
                         .executes(context -> listShops(context.getSource())))
                 .then(Commands.literal("where")
+                        .requires(CommandShopCommands::canUseCommand)
                         .executes(context -> showDirectory(context.getSource())))
-                .then(createStatsCommand()));
+                .then(createStatsCommand().requires(CommandShopCommands::canUseCommand)));
     }
 
     private static com.mojang.brigadier.builder.ArgumentBuilder<CommandSourceStack, ?> createStatsCommand() {
@@ -202,12 +206,7 @@ public final class CommandShopCommands {
     }
 
     private static boolean canUseCommand(CommandSourceStack source) {
-        return source.hasPermission(2) || isCustomNpcSource(source);
-    }
-
-    private static boolean isCustomNpcSource(CommandSourceStack source) {
-        Entity entity = source.getEntity();
-        return entity != null && entity.getClass().getName().startsWith("noppes.npcs.entity.");
+        return source.hasPermission(2);
     }
 
     private static int openForImplicitTarget(CommandSourceStack source, String shopId) throws CommandSyntaxException {

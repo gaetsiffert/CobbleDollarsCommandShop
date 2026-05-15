@@ -30,13 +30,19 @@ If `shops/<shop_id>/bank.json` exists, that file is used instead of the global b
 
 ## Commands
 
+Public commands:
+
 - `/cdshops open <shop>`
-- `/cdshops open <shop> <player>`
+- `/cdshops list`
+- `/cdshops visibility list`
+
+Admin commands (`permission level 2`):
+
+- `/cdshops open <shop> <targets>`
 - `/cdshops reload`
 - `/cdshops restock <shop> all <players>`
 - `/cdshops restock <shop> offer <offer> <players>`
 - `/cdshops stock <shop> <player>`
-- `/cdshops visibility list`
 - `/cdshops visibility <shop> status`
 - `/cdshops visibility <shop> enable`
 - `/cdshops visibility <shop> disable [message]`
@@ -45,7 +51,6 @@ If `shops/<shop_id>/bank.json` exists, that file is used instead of the global b
 - `/cdshops stats shop <shop> [window]`
 - `/cdshops stats player <player|uuid> [window]`
 - `/cdshops stats item <item> [window]`
-- `/cdshops list`
 - `/cdshops where`
 
 ## Shop File
@@ -520,7 +525,7 @@ It can disable the whole feature, enable or disable individual event types, and 
 ```
 
 Audit entries are appended as JSON Lines to `logs/cobbledollarscommandshops/audit.jsonl`.
-The `/cdshops stats ...` admin commands read this file on demand.
+The `/cdshops stats ...` admin commands read the active `audit.jsonl` file and any rotated `.jsonl.zip` archives on demand.
 The current schema logs:
 
 - `buy_success`

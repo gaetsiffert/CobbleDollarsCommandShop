@@ -243,34 +243,46 @@ public final class CommandShopSessions {
             return true;
         }
 
-        if (offerDefinition.hasFiniteStock()) {
-            stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
+        try {
+            PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
+            deliveredInventory.apply(player.getInventory());
+            if (offerDefinition.hasFiniteStock()) {
+                stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
+            }
+        } catch (Exception exception) {
+            rollbackBuyTransaction(player, inventorySnapshot, balance);
+            resyncBuyTransactionRollback(server, player, session, shop, stockData);
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to commit custom shop purchase for {}", player.getGameProfile().getName(), exception);
+            player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.buy_transaction_failed"));
+            return true;
         }
 
-        PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
-        deliveredInventory.apply(player.getInventory());
         player.getInventory().setChanged();
-        player.containerMenu.broadcastChanges();
+        safelyBroadcastMenuChanges(player);
 
         int updatedStock = -1;
         if (offerDefinition.hasFiniteStock()) {
             updatedStock = Math.max(0, currentStock - amount);
             expectedOffer.setStock(updatedStock);
         }
-        ShopSessionSyncService.refreshSessionShop(player, session, currentRuntimeData);
-        long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
-        ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
-        AuditLogService.logBuySuccess(
-                player,
-                shop,
-                offerDefinition,
-                amount,
-                totalPrice,
-                bonusItems,
-                offerDefinition.hasFiniteStock() ? currentStock : null,
-                updatedStock >= 0 ? updatedStock : null
-        );
-        updateSessionRefreshState(server, player, session, shop, currentRuntimeData, nowMillis, nextRestockAtMillis);
+        try {
+            ShopSessionSyncService.refreshSessionShop(player, session, currentRuntimeData);
+            long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
+            ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
+            AuditLogService.logBuySuccess(
+                    player,
+                    shop,
+                    offerDefinition,
+                    amount,
+                    totalPrice,
+                    bonusItems,
+                    offerDefinition.hasFiniteStock() ? currentStock : null,
+                    updatedStock >= 0 ? updatedStock : null
+            );
+            updateSessionRefreshState(server, player, session, shop, currentRuntimeData, nowMillis, nextRestockAtMillis);
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to finalize custom shop purchase sync for {}", player.getGameProfile().getName(), exception);
+        }
         return true;
     }
 
@@ -437,9 +449,12 @@ public final class CommandShopSessions {
 
         BankMenu bankMenu = requireBankMenu(player);
         SimpleContainer bankContainer = bankMenu.getBankContainer();
+        ContainerSnapshot bankSnapshot = ContainerSnapshot.capture(bankContainer);
+        BigInteger balanceBefore = PlayerExtensionKt.getCobbleDollars(player);
         BigInteger totalValue = BigInteger.ZERO;
         int soldItemCount = 0;
         ArrayList<AuditLogService.SoldItemLine> soldItems = new ArrayList<>();
+        ArrayList<Integer> soldSlots = new ArrayList<>();
         try {
             var bankData = ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player);
             for (int slot = 0; slot < bankContainer.getContainerSize(); slot++) {
@@ -457,7 +472,7 @@ public final class CommandShopSessions {
                 totalValue = totalValue.add(lineTotal);
                 soldItemCount += stack.getCount();
                 soldItems.add(new AuditLogService.SoldItemLine(stack.copy(), offer.getPrice(), lineTotal));
-                bankContainer.setItem(slot, ItemStack.EMPTY);
+                soldSlots.add(slot);
             }
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sell items from custom bank for {}", player.getGameProfile().getName(), exception);
@@ -466,15 +481,25 @@ public final class CommandShopSessions {
         }
 
         if (totalValue.signum() > 0) {
-            PlayerExtensionKt.setCobbleDollars(player, PlayerExtensionKt.getCobbleDollars(player).add(totalValue));
+            try {
+                PlayerExtensionKt.setCobbleDollars(player, balanceBefore.add(totalValue));
+                for (int slot : soldSlots) {
+                    bankContainer.setItem(slot, ItemStack.EMPTY);
+                }
+            } catch (Exception exception) {
+                rollbackSellTransaction(player, bankContainer, bankSnapshot, balanceBefore);
+                CobbleDollarsCommandShopsMod.LOGGER.error("Failed to commit custom bank sale for {}", player.getGameProfile().getName(), exception);
+                player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.sell_transaction_failed"));
+                return true;
+            }
+            bankContainer.setChanged();
+            safelyBroadcastMenuChanges(player);
             ShopFeedbackService.onSellSuccess(player, soldItemCount, totalValue);
             AuditLogService.logSellSuccess(player, shop, soldItemCount, totalValue, soldItems);
         } else {
             AuditLogService.logSellFailure(player, shop, SellFailureReason.NOTHING_SELLABLE);
             ShopFeedbackService.onSellFailure(player, SellFailureReason.NOTHING_SELLABLE);
         }
-        bankContainer.setChanged();
-        bankMenu.broadcastChanges();
         return true;
     }
 
@@ -706,6 +731,22 @@ public final class CommandShopSessions {
         }
     }
 
+    private record ContainerSnapshot(List<ItemStack> items) {
+        private static ContainerSnapshot capture(SimpleContainer container) {
+            ArrayList<ItemStack> items = new ArrayList<>(container.getContainerSize());
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                items.add(container.getItem(slot).copy());
+            }
+            return new ContainerSnapshot(List.copyOf(items));
+        }
+
+        private void apply(SimpleContainer container) {
+            for (int slot = 0; slot < items.size(); slot++) {
+                container.setItem(slot, items.get(slot).copy());
+            }
+        }
+    }
+
     private record InventorySnapshot(List<ItemStack> items, List<ItemStack> armor, List<ItemStack> offhand, int selectedSlot) {
         private static InventorySnapshot capture(ServerPlayer player) {
             return capture(player.getInventory());
@@ -896,5 +937,66 @@ public final class CommandShopSessions {
             long syncClientBankConfigNanos,
             long updateSessionRefreshStateNanos
     ) {
+    }
+
+    private static void rollbackBuyTransaction(ServerPlayer player, InventorySnapshot inventorySnapshot, BigInteger balanceBefore) {
+        try {
+            PlayerExtensionKt.setCobbleDollars(player, balanceBefore);
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to restore player balance after purchase rollback for {}", player.getGameProfile().getName(), exception);
+        }
+        try {
+            inventorySnapshot.apply(player.getInventory());
+            player.getInventory().setChanged();
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to restore player inventory after purchase rollback for {}", player.getGameProfile().getName(), exception);
+        }
+        safelyBroadcastMenuChanges(player);
+    }
+
+    private static void resyncBuyTransactionRollback(
+            MinecraftServer server,
+            ServerPlayer player,
+            CommandShopSessionState session,
+            ShopDefinition shop,
+            PlayerShopStockData stockData
+    ) {
+        try {
+            long nowMillis = System.currentTimeMillis();
+            ShopDefinition.RuntimeShopData rollbackRuntimeData = shop.createRuntimeData(stockData, player, nowMillis);
+            ShopSessionSyncService.sendFullSync(player, session, rollbackRuntimeData);
+            long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, rollbackRuntimeData, stockData, nowMillis);
+            updateSessionRefreshState(server, player, session, shop, rollbackRuntimeData, nowMillis, nextRestockAtMillis);
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to resync shop session after purchase rollback for {}", player.getGameProfile().getName(), exception);
+        }
+    }
+
+    private static void rollbackSellTransaction(
+            ServerPlayer player,
+            SimpleContainer bankContainer,
+            ContainerSnapshot bankSnapshot,
+            BigInteger balanceBefore
+    ) {
+        try {
+            PlayerExtensionKt.setCobbleDollars(player, balanceBefore);
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to restore player balance after bank sale rollback for {}", player.getGameProfile().getName(), exception);
+        }
+        try {
+            bankSnapshot.apply(bankContainer);
+            bankContainer.setChanged();
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to restore bank contents after bank sale rollback for {}", player.getGameProfile().getName(), exception);
+        }
+        safelyBroadcastMenuChanges(player);
+    }
+
+    private static void safelyBroadcastMenuChanges(ServerPlayer player) {
+        try {
+            player.containerMenu.broadcastChanges();
+        } catch (Exception exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.error("Failed to broadcast container changes for {}", player.getGameProfile().getName(), exception);
+        }
     }
 }

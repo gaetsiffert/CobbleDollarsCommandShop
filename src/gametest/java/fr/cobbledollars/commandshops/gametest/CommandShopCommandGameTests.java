@@ -30,6 +30,8 @@ public final class CommandShopCommandGameTests {
     @EmptyTemplate(value = "5x4x5", floor = true)
     public static void command_tree_is_registered(ExtendedGameTestHelper helper) {
         CommandNode<CommandSourceStack> root = helper.getLevel().getServer().getCommands().getDispatcher().getRoot().getChild("cdshops");
+        CommandSourceStack adminSource = helper.getLevel().getServer().createCommandSourceStack().withPermission(4);
+        CommandSourceStack publicSource = helper.getLevel().getServer().createCommandSourceStack().withPermission(0);
         helper.assertTrue(root != null, "The /cdshops root command was not registered.");
         helper.assertTrue(root.getChild("open") != null, "The /cdshops open subcommand is missing.");
         helper.assertTrue(root.getChild("reload") != null, "The /cdshops reload subcommand is missing.");
@@ -38,6 +40,26 @@ public final class CommandShopCommandGameTests {
         helper.assertTrue(root.getChild("visibility") != null, "The /cdshops visibility subcommand is missing.");
         helper.assertTrue(root.getChild("list") != null, "The /cdshops list subcommand is missing.");
         helper.assertTrue(root.getChild("where") != null, "The /cdshops where subcommand is missing.");
+        helper.assertTrue(root.canUse(adminSource),
+                "The /cdshops root command should remain available to permissioned sources.");
+        helper.assertTrue(root.canUse(publicSource),
+                "The /cdshops root command should remain visible to public sources.");
+        helper.assertTrue(root.getChild("open").canUse(publicSource),
+                "The /cdshops open subcommand should remain visible to public sources.");
+        helper.assertTrue(root.getChild("list").canUse(publicSource),
+                "The /cdshops list subcommand should remain visible to public sources.");
+        helper.assertTrue(root.getChild("visibility").canUse(publicSource),
+                "The /cdshops visibility root subcommand should remain visible to public sources.");
+        helper.assertTrue(root.getChild("visibility").getChild("list").canUse(publicSource),
+                "The /cdshops visibility list subcommand should remain visible to public sources.");
+        helper.assertTrue(!root.getChild("reload").canUse(publicSource),
+                "The /cdshops reload subcommand should remain hidden from public sources.");
+        helper.assertTrue(!root.getChild("restock").canUse(publicSource),
+                "The /cdshops restock subcommand should remain hidden from public sources.");
+        helper.assertTrue(!root.getChild("stock").canUse(publicSource),
+                "The /cdshops stock subcommand should remain hidden from public sources.");
+        helper.assertTrue(!root.getChild("where").canUse(publicSource),
+                "The /cdshops where subcommand should remain hidden from public sources.");
         helper.succeed();
     }
 

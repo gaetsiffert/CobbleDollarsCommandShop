@@ -28,13 +28,19 @@ If the same jar is installed on the client, the mod can also provide optional cl
 
 ## Commands
 
+Public commands:
+
 - `/cdshops open <shop>`
-- `/cdshops open <shop> <player>`
+- `/cdshops list`
+- `/cdshops visibility list`
+
+Admin commands (`permission level 2`):
+
+- `/cdshops open <shop> <targets>`
 - `/cdshops reload`
 - `/cdshops restock <shop> all <players>`
 - `/cdshops restock <shop> offer <offer> <players>`
 - `/cdshops stock <shop> <player>`
-- `/cdshops visibility list`
 - `/cdshops visibility <shop> status`
 - `/cdshops visibility <shop> enable`
 - `/cdshops visibility <shop> disable [message]`
@@ -43,7 +49,6 @@ If the same jar is installed on the client, the mod can also provide optional cl
 - `/cdshops stats shop <shop> [window]`
 - `/cdshops stats player <player|uuid> [window]`
 - `/cdshops stats item <item> [window]`
-- `/cdshops list`
 - `/cdshops where`
 
 ## Configuration
@@ -74,7 +79,7 @@ Transaction audit logs are written to:
 logs/cobbledollarscommandshops/audit.jsonl
 ```
 
-The `/cdshops stats ...` admin commands read this file directly.
+The `/cdshops stats ...` admin commands read the active `audit.jsonl` file and any rotated `.jsonl.zip` archives on demand.
 
 ## Important files for writing shops and banks
 
