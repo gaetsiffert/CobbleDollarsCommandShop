@@ -34,8 +34,18 @@ import net.minecraft.world.item.ItemStack;
 public final class CommandShopSessions {
     private static final Map<UUID, CommandShopSessionState> ACTIVE_SESSIONS = new HashMap<>();
     private static final Map<UUID, PendingShopOpen> PENDING_SHOP_OPENS = new HashMap<>();
+    private static TransactionTestHook transactionTestHook;
 
     private CommandShopSessions() {
+    }
+
+    // Test-only hook used by GameTests to force mid-transaction failures.
+    public static void setTransactionTestHookForTesting(TransactionTestHook hook) {
+        transactionTestHook = hook;
+    }
+
+    public static void clearTransactionTestHookForTesting() {
+        transactionTestHook = null;
     }
 
     public static void openShop(ServerPlayer player, ShopDefinition shop) {
@@ -245,7 +255,9 @@ public final class CommandShopSessions {
 
         try {
             PlayerExtensionKt.setCobbleDollars(player, balance.subtract(totalPrice));
+            runTransactionTestHook(TransactionHookPoint.BUY_AFTER_BALANCE_DEBIT, player);
             deliveredInventory.apply(player.getInventory());
+            runTransactionTestHook(TransactionHookPoint.BUY_AFTER_INVENTORY_APPLY, player);
             if (offerDefinition.hasFiniteStock()) {
                 stockData.consumeStock(player.getUUID(), shop, offerDefinition, amount, nowMillis);
             }
@@ -408,6 +420,7 @@ public final class CommandShopSessions {
     public static void cleanupAll() {
         ACTIVE_SESSIONS.clear();
         PENDING_SHOP_OPENS.clear();
+        transactionTestHook = null;
     }
 
     public static void closeShopSessions(MinecraftServer server, String shopId, Component denialMessage) {
@@ -483,8 +496,10 @@ public final class CommandShopSessions {
         if (totalValue.signum() > 0) {
             try {
                 PlayerExtensionKt.setCobbleDollars(player, balanceBefore.add(totalValue));
+                runTransactionTestHook(TransactionHookPoint.SELL_AFTER_BALANCE_CREDIT, player);
                 for (int slot : soldSlots) {
                     bankContainer.setItem(slot, ItemStack.EMPTY);
+                    runTransactionTestHook(TransactionHookPoint.SELL_AFTER_SLOT_CLEAR, player);
                 }
             } catch (Exception exception) {
                 rollbackSellTransaction(player, bankContainer, bankSnapshot, balanceBefore);
@@ -998,5 +1013,24 @@ public final class CommandShopSessions {
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to broadcast container changes for {}", player.getGameProfile().getName(), exception);
         }
+    }
+
+    private static void runTransactionTestHook(TransactionHookPoint point, ServerPlayer player) throws Exception {
+        TransactionTestHook hook = transactionTestHook;
+        if (hook != null) {
+            hook.run(point, player);
+        }
+    }
+
+    public enum TransactionHookPoint {
+        BUY_AFTER_BALANCE_DEBIT,
+        BUY_AFTER_INVENTORY_APPLY,
+        SELL_AFTER_BALANCE_CREDIT,
+        SELL_AFTER_SLOT_CLEAR
+    }
+
+    @FunctionalInterface
+    public interface TransactionTestHook {
+        void run(TransactionHookPoint point, ServerPlayer player) throws Exception;
     }
 }

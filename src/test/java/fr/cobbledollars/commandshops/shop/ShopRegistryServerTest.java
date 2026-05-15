@@ -30,6 +30,7 @@ class ShopRegistryServerTest {
     @AfterEach
     void clearRegistryState() throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
         deleteRecursively(ShopRegistry.getShopDirectory().resolve(CUSTOM_SHOP_ID));
         deleteRecursively(ShopRegistry.getShopDirectory().resolve(INVALID_SHOP_ID));
         deleteRecursively(ShopRegistry.getShopDirectory().resolve(CUSTOM_BANK_SHOP_ID));
@@ -39,6 +40,7 @@ class ShopRegistryServerTest {
     @Test
     void initializes_default_shops_against_server_registries(MinecraftServer server) throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
 
         ShopRegistry.ReloadSummary summary = ShopRegistry.initialize(server.registryAccess());
         boolean cobblemonLoaded = ModList.get().isLoaded("cobblemon");
@@ -69,6 +71,7 @@ class ShopRegistryServerTest {
     @Test
     void reload_picks_up_added_and_removed_custom_shop(MinecraftServer server) throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
 
         ShopRegistry.ReloadSummary initialSummary = ShopRegistry.initialize(server.registryAccess());
         Path customShopDirectory = ShopRegistry.getShopDirectory().resolve(CUSTOM_SHOP_ID);
@@ -119,8 +122,39 @@ class ShopRegistryServerTest {
     }
 
     @Test
+    void initialize_does_not_recreate_missing_default_shop_when_shops_directory_already_exists(MinecraftServer server)
+            throws IOException {
+        ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
+
+        try {
+            ShopRegistry.initialize(server.registryAccess());
+            Path generalStoreDirectory = ShopRegistry.getShopDirectory().resolve("general_store");
+            assertTrue(Files.isDirectory(generalStoreDirectory));
+
+            deleteRecursively(generalStoreDirectory);
+            assertTrue(Files.isDirectory(ShopRegistry.getShopDirectory()),
+                    "The parent shops directory should still exist for this regression test.");
+
+            ShopRegistry.clear();
+            ShopRegistry.ReloadSummary summary = ShopRegistry.initialize(server.registryAccess());
+
+            assertNull(ShopRegistry.getShop("general_store"));
+            assertTrue(!ShopRegistry.listShopIds().contains("general_store"));
+            assertTrue(summary.shopCount() >= 1,
+                    "The registry should still load any remaining shops even when one default shop was removed.");
+            assertTrue(!Files.exists(generalStoreDirectory),
+                    "A missing default shop should not be recreated when the shops directory already exists.");
+        } finally {
+            ShopRegistry.clear();
+            deleteRecursively(ShopRegistry.getShopDirectory());
+        }
+    }
+
+    @Test
     void reload_rejects_invalid_shop_without_replacing_previous_state(MinecraftServer server) throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
 
         ShopRegistry.ReloadSummary initialSummary = ShopRegistry.initialize(server.registryAccess());
         List<String> initialShopIds = ShopRegistry.listShopIds();
@@ -170,6 +204,7 @@ class ShopRegistryServerTest {
     void reload_picks_up_and_removes_custom_local_bank(MinecraftServer server)
             throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
 
         ShopRegistry.ReloadSummary initialSummary = ShopRegistry.initialize(server.registryAccess());
         Path customShopDirectory = ShopRegistry.getShopDirectory().resolve(CUSTOM_BANK_SHOP_ID);
@@ -198,6 +233,7 @@ class ShopRegistryServerTest {
     void reload_rejects_invalid_local_bank_without_replacing_previous_state(MinecraftServer server)
             throws IOException {
         ShopRegistry.clear();
+        deleteRecursively(ShopRegistry.getShopDirectory());
 
         ShopRegistry.initialize(server.registryAccess());
         Path customShopDirectory = ShopRegistry.getShopDirectory().resolve(INVALID_BANK_SHOP_ID);

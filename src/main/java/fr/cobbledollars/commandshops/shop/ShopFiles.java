@@ -50,6 +50,13 @@ public final class ShopFiles {
     }
 
     public static void ensureDefaultShopsExist() throws IOException {
+        if (Files.exists(SHOP_DIRECTORY)) {
+            if (!Files.isDirectory(SHOP_DIRECTORY)) {
+                throw new IOException("Expected shops path to be a directory: " + SHOP_DIRECTORY);
+            }
+            return;
+        }
+
         Files.createDirectories(SHOP_DIRECTORY);
         ensureShopExists("general_store", createGeneralStoreShop());
         ensureShopExists("blacksmith", createBlacksmithShop());
