@@ -8,6 +8,7 @@ import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import net.minecraft.gametest.framework.GameTest;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.ModList;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.TestHolder;
 import net.neoforged.testframework.gametest.EmptyTemplate;
@@ -29,6 +30,10 @@ public final class CommandShopRegistryGameTests {
         List<String> shopIds = ShopRegistry.listShopIds();
         helper.assertTrue(shopIds.containsAll(List.of("blacksmith", "explorer", "general_store", "syntax_showcase")),
                 "Default shop ids are missing: " + shopIds);
+        if (ModList.get().isLoaded("cobblemon")) {
+            helper.assertTrue(shopIds.containsAll(List.of("trainer_supply", "breeder_corner", "night_market")),
+                    "Cobblemon starter shop ids are missing: " + shopIds);
+        }
         helper.assertTrue(Files.isDirectory(ShopRegistry.getShopDirectory()), "Shop directory was not created.");
         helper.assertTrue(Files.isRegularFile(ShopRegistry.getGlobalBankFile()), "Global bank file is missing.");
 
@@ -36,6 +41,13 @@ public final class CommandShopRegistryGameTests {
         helper.assertTrue(generalStore != null, "general_store was not loaded.");
         helper.assertValueEqual("general_store", generalStore.id(), "general_store id changed.");
         helper.assertTrue(!generalStore.categories().isEmpty(), "general_store has no categories.");
+        if (ModList.get().isLoaded("cobblemon")) {
+            ShopDefinition nightMarket = ShopRegistry.getShop("night_market");
+            helper.assertTrue(nightMarket != null, "night_market was not loaded.");
+            helper.assertTrue(nightMarket.hasTimeConditions(), "night_market should have a night-only time condition.");
+            helper.assertTrue(nightMarket.denyMessage() != null && !nightMarket.denyMessage().isBlank(),
+                    "night_market should expose a deny message.");
+        }
         helper.succeed();
     }
 

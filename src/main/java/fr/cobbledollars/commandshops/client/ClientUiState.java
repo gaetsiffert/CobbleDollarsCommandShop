@@ -3,6 +3,7 @@ package fr.cobbledollars.commandshops.client;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
+import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -70,6 +72,16 @@ public final class ClientUiState {
     private static final int BUTTON_BORDER = 0xFF55AA55;
     private static final int BUTTON_TEXT = 0xFF6CD987;
     private static final int ACCEPTED_ITEMS_PER_PAGE = 8;
+    private static final int ACCEPTED_ITEMS_COLUMNS = 2;
+    private static final int ACCEPTED_ITEMS_CELL_WIDTH = 112;
+    private static final int ACCEPTED_ITEMS_CELL_HEIGHT = 22;
+    private static final int ACCEPTED_ITEMS_GAP_X = 10;
+    private static final int ACCEPTED_ITEMS_GAP_Y = 6;
+    private static final int ACCEPTED_ITEMS_GRID_WIDTH = (ACCEPTED_ITEMS_COLUMNS * ACCEPTED_ITEMS_CELL_WIDTH)
+            + ((ACCEPTED_ITEMS_COLUMNS - 1) * ACCEPTED_ITEMS_GAP_X);
+    private static final int ACCEPTED_ITEMS_ROWS = ACCEPTED_ITEMS_PER_PAGE / ACCEPTED_ITEMS_COLUMNS;
+    private static final int ACCEPTED_ITEMS_CONTENT_HEIGHT = (ACCEPTED_ITEMS_ROWS * ACCEPTED_ITEMS_CELL_HEIGHT)
+            + ((ACCEPTED_ITEMS_ROWS - 1) * ACCEPTED_ITEMS_GAP_Y);
     private static final float POPUP_LAYER_Z = 4000.0F;
     private static final Bank EMPTY_BANK = new Bank();
 
@@ -84,6 +96,7 @@ public final class ClientUiState {
     private static boolean suppressBankTooltipAugment;
     private static EditBox acceptedItemsSearchBox;
     private static boolean modalRenderHandledInPre;
+    private static AcceptedItemsSortMode acceptedItemsSortMode = AcceptedItemsSortMode.DEFAULT;
     private static AcceptedItemsEntryCache acceptedItemsEntryCache;
     private static AcceptedItemsFilterCache acceptedItemsFilterCache;
 
@@ -108,6 +121,17 @@ public final class ClientUiState {
         invalidateAcceptedItemsCache();
     }
 
+    public static List<Rect2i> getJeiExtraAreas(BankScreen screen) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null) {
+            return List.of();
+        }
+        if (acceptedItemsModalOpen) {
+            return List.of(new Rect2i(0, 0, minecraft.getWindow().getGuiScaledWidth(), minecraft.getWindow().getGuiScaledHeight()));
+        }
+        return List.of(toJeiRect(getAcceptedItemsButtonRect(minecraft, screen)));
+    }
+
     public static void clear() {
         currentShopState = null;
         currentBankState = null;
@@ -120,6 +144,7 @@ public final class ClientUiState {
         suppressBankTooltipAugment = false;
         acceptedItemsSearchBox = null;
         modalRenderHandledInPre = false;
+        acceptedItemsSortMode = AcceptedItemsSortMode.DEFAULT;
         invalidateAcceptedItemsCache();
     }
 
@@ -227,6 +252,7 @@ public final class ClientUiState {
             acceptedItemsSearchFocused = false;
             acceptedItemsSearchQuery = "";
             acceptedItemsPage = 0;
+            acceptedItemsSortMode = AcceptedItemsSortMode.DEFAULT;
             currentBankState = null;
             modalRenderHandledInPre = false;
         }
@@ -326,6 +352,59 @@ public final class ClientUiState {
 
         int mouseX = (int) Math.round(event.getMouseX());
         int mouseY = (int) Math.round(event.getMouseY());
+        if (acceptedItemsModalOpen) {
+            AcceptedItemsModalLayout layout = getAcceptedItemsModalLayout(Minecraft.getInstance());
+            if (layout.searchRect().contains(mouseX, mouseY)) {
+                acceptedItemsSearchFocused = true;
+                if (acceptedItemsSearchBox != null) {
+                    acceptedItemsSearchBox.setFocused(true);
+                    acceptedItemsSearchBox.mouseClicked(mouseX, mouseY, event.getButton());
+                }
+                event.setCanceled(true);
+                return;
+            }
+            if (layout.sortRect().contains(mouseX, mouseY)) {
+                cycleAcceptedItemsSortMode();
+                event.setCanceled(true);
+                return;
+            }
+            if (layout.closeRect().contains(mouseX, mouseY)) {
+                acceptedItemsModalOpen = false;
+                acceptedItemsSearchFocused = false;
+                if (acceptedItemsSearchBox != null) {
+                    acceptedItemsSearchBox.setFocused(false);
+                }
+                event.setCanceled(true);
+                return;
+            }
+            if (layout.previousRect() != null && layout.previousRect().contains(mouseX, mouseY)) {
+                acceptedItemsPage = Math.max(0, acceptedItemsPage - 1);
+                event.setCanceled(true);
+                return;
+            }
+            if (layout.nextRect() != null && layout.nextRect().contains(mouseX, mouseY)) {
+                acceptedItemsPage = Math.min(getAcceptedItemsPageCount() - 1, acceptedItemsPage + 1);
+                event.setCanceled(true);
+                return;
+            }
+            if (!layout.panelRect().contains(mouseX, mouseY)) {
+                acceptedItemsModalOpen = false;
+                acceptedItemsSearchFocused = false;
+                if (acceptedItemsSearchBox != null) {
+                    acceptedItemsSearchBox.setFocused(false);
+                }
+                event.setCanceled(true);
+                return;
+            }
+
+            acceptedItemsSearchFocused = false;
+            if (acceptedItemsSearchBox != null) {
+                acceptedItemsSearchBox.setFocused(false);
+            }
+            event.setCanceled(true);
+            return;
+        }
+
         Rect buttonRect = getAcceptedItemsButtonRect(Minecraft.getInstance(), bankScreen);
         if (buttonRect.contains(mouseX, mouseY)) {
             acceptedItemsModalOpen = true;
@@ -335,52 +414,7 @@ public final class ClientUiState {
                 acceptedItemsSearchBox.setFocused(true);
             }
             event.setCanceled(true);
-            return;
         }
-
-        if (!acceptedItemsModalOpen) {
-            return;
-        }
-
-        AcceptedItemsModalLayout layout = getAcceptedItemsModalLayout(Minecraft.getInstance());
-        if (layout.searchRect().contains(mouseX, mouseY)) {
-            acceptedItemsSearchFocused = true;
-            if (acceptedItemsSearchBox != null) {
-                acceptedItemsSearchBox.setFocused(true);
-                acceptedItemsSearchBox.mouseClicked(mouseX, mouseY, event.getButton());
-            }
-            event.setCanceled(true);
-            return;
-        }
-        if (layout.closeRect().contains(mouseX, mouseY)) {
-            acceptedItemsModalOpen = false;
-            acceptedItemsSearchFocused = false;
-            event.setCanceled(true);
-            return;
-        }
-        if (layout.previousRect() != null && layout.previousRect().contains(mouseX, mouseY)) {
-            acceptedItemsPage = Math.max(0, acceptedItemsPage - 1);
-            event.setCanceled(true);
-            return;
-        }
-        if (layout.nextRect() != null && layout.nextRect().contains(mouseX, mouseY)) {
-            acceptedItemsPage = Math.min(getAcceptedItemsPageCount() - 1, acceptedItemsPage + 1);
-            event.setCanceled(true);
-            return;
-        }
-
-        if (!layout.panelRect().contains(mouseX, mouseY)) {
-            acceptedItemsModalOpen = false;
-            acceptedItemsSearchFocused = false;
-            event.setCanceled(true);
-            return;
-        }
-
-        acceptedItemsSearchFocused = false;
-        if (acceptedItemsSearchBox != null) {
-            acceptedItemsSearchBox.setFocused(false);
-        }
-        event.setCanceled(true);
     }
 
     @SubscribeEvent
@@ -455,6 +489,7 @@ public final class ClientUiState {
             acceptedItemsPage = 0;
             acceptedItemsSearchQuery = "";
             acceptedItemsSearchFocused = false;
+            acceptedItemsSortMode = AcceptedItemsSortMode.DEFAULT;
             if (acceptedItemsSearchBox != null) {
                 acceptedItemsSearchBox.setValue("");
                 acceptedItemsSearchBox.setFocused(false);
@@ -593,7 +628,7 @@ public final class ClientUiState {
 
     private static void renderAcceptedItemsButton(GuiGraphics guiGraphics, Font font, BankScreen screen, int mouseX, int mouseY) {
         Rect rect = getAcceptedItemsButtonRect(Minecraft.getInstance(), screen);
-        boolean hovered = rect.contains(mouseX, mouseY);
+        boolean hovered = !acceptedItemsModalOpen && rect.contains(mouseX, mouseY);
         drawButton(guiGraphics, font, rect, Component.translatable("cobbledollarscommandshops.ui.bank.accepted_button").getString(), hovered);
     }
 
@@ -612,22 +647,19 @@ public final class ClientUiState {
         boolean closeHovered = layout.closeRect().contains(mouseX, mouseY);
         guiGraphics.drawString(font, "x", layout.closeRect().x(), layout.closeRect().y(), closeHovered ? 0xFFFF7777 : 0xFFCCCCCC, false);
         renderSearchBox(guiGraphics, font, layout.searchRect(), mouseX, mouseY);
+        renderSortButton(guiGraphics, font, layout.sortRect(), mouseX, mouseY);
 
         List<AcceptedItemEntry> entries = getAcceptedItemEntriesForPage();
         int startX = layout.contentRect().x();
         int startY = layout.contentRect().y();
-        int cellWidth = 112;
-        int cellHeight = 22;
-        int gapX = 10;
-        int gapY = 6;
         Offer hoveredOffer = null;
 
         for (int index = 0; index < entries.size(); index++) {
-            int column = index % 2;
-            int row = index / 2;
-            int cellX = startX + (column * (cellWidth + gapX));
-            int cellY = startY + (row * (cellHeight + gapY));
-            Rect cellRect = new Rect(cellX, cellY, cellWidth, cellHeight);
+            int column = index % ACCEPTED_ITEMS_COLUMNS;
+            int row = index / ACCEPTED_ITEMS_COLUMNS;
+            int cellX = startX + (column * (ACCEPTED_ITEMS_CELL_WIDTH + ACCEPTED_ITEMS_GAP_X));
+            int cellY = startY + (row * (ACCEPTED_ITEMS_CELL_HEIGHT + ACCEPTED_ITEMS_GAP_Y));
+            Rect cellRect = new Rect(cellX, cellY, ACCEPTED_ITEMS_CELL_WIDTH, ACCEPTED_ITEMS_CELL_HEIGHT);
             boolean hovered = cellRect.contains(mouseX, mouseY);
             guiGraphics.fill(cellRect.x(), cellRect.y(), cellRect.right(), cellRect.bottom(), hovered ? 0xFF26442C : 0xFF1B261D);
             drawThinBorder(guiGraphics, cellRect, hovered ? 0xFF73C77A : 0xFF46724B);
@@ -698,20 +730,27 @@ public final class ClientUiState {
     }
 
     private static AcceptedItemsModalLayout getAcceptedItemsModalLayout(Minecraft minecraft) {
-        int width = 250;
+        Font font = minecraft.font;
+        String sortLabel = Component.translatable("cobbledollarscommandshops.ui.bank.sort_label").getString();
+        int sortLabelWidth = font == null ? 16 : font.width(sortLabel);
+        int sortButtonWidth = getAcceptedItemsSortButtonWidth(font);
+        int width = ACCEPTED_ITEMS_GRID_WIDTH + 20;
         int height = 176;
         int x = (minecraft.getWindow().getGuiScaledWidth() - width) / 2;
         int y = (minecraft.getWindow().getGuiScaledHeight() - height) / 2;
         Rect panel = new Rect(x, y, width, height);
         Rect header = new Rect(x + 1, y + 1, width - 2, 14);
-        Rect search = new Rect(x + 10, y + 20, width - 20, 14);
-        Rect content = new Rect(x + 10, y + 40, width - 20, 106);
-        Rect footer = new Rect(x + 10, y + height - 18, width - 20, 12);
+        int contentX = x + ((width - ACCEPTED_ITEMS_GRID_WIDTH) / 2);
+        Rect content = new Rect(contentX, y + 40, ACCEPTED_ITEMS_GRID_WIDTH, ACCEPTED_ITEMS_CONTENT_HEIGHT);
+        int searchWidth = content.width() - 8 - sortLabelWidth - 4 - sortButtonWidth;
+        Rect search = new Rect(content.x(), y + 20, searchWidth, 14);
+        Rect sort = new Rect(content.right() - sortButtonWidth, y + 20, sortButtonWidth, 14);
+        Rect footer = new Rect(content.x(), y + height - 18, content.width(), 12);
         Rect close = new Rect(x + width - 12, y + 3, 8, 8);
         int pageCount = getAcceptedItemsPageCount();
         Rect previous = pageCount > 1 ? new Rect(footer.x(), footer.y(), 14, 12) : null;
         Rect next = pageCount > 1 ? new Rect(footer.right() - 14, footer.y(), 14, 12) : null;
-        return new AcceptedItemsModalLayout(panel, header, search, content, footer, close, previous, next);
+        return new AcceptedItemsModalLayout(panel, header, search, sort, content, footer, close, previous, next);
     }
 
     private static List<AcceptedItemEntry> getAcceptedItemEntriesForPage() {
@@ -768,6 +807,14 @@ public final class ClientUiState {
         }
     }
 
+    private static void renderSortButton(GuiGraphics guiGraphics, Font font, Rect rect, int mouseX, int mouseY) {
+        String sortLabel = Component.translatable("cobbledollarscommandshops.ui.bank.sort_label").getString();
+        int sortLabelX = rect.x() - 4 - font.width(sortLabel);
+        guiGraphics.drawString(font, sortLabel, sortLabelX, rect.y() + 3, TEXT_MUTED, false);
+        boolean hovered = rect.contains(mouseX, mouseY);
+        drawButton(guiGraphics, font, rect, acceptedItemsSortMode.label(), hovered);
+    }
+
     private static void ensureAcceptedItemsSearchBox() {
         if (acceptedItemsSearchBox != null) {
             return;
@@ -800,6 +847,12 @@ public final class ClientUiState {
             return;
         }
         acceptedItemsPage = Math.max(0, Math.min(acceptedItemsPage + delta, pageCount - 1));
+    }
+
+    private static void cycleAcceptedItemsSortMode() {
+        acceptedItemsSortMode = acceptedItemsSortMode.next();
+        acceptedItemsPage = 0;
+        acceptedItemsFilterCache = null;
     }
 
     private static Bank getClientBank() {
@@ -835,15 +888,15 @@ public final class ClientUiState {
         if (entryCache != null
                 && entryCache.sourceOffers() == offers
                 && entryCache.languageCode().equals(languageCode)) {
-            return entryCache.entries();
+            return entryCache.entriesBySortMode().get(acceptedItemsSortMode);
         }
 
-        ArrayList<AcceptedItemEntry> entries = new ArrayList<>(offers.size());
+        ArrayList<AcceptedItemEntry> baseEntries = new ArrayList<>(offers.size());
         for (Offer offer : offers) {
             String name = offer.getItem().getHoverName().getString();
             String normalizedName = name.toLowerCase(Locale.ROOT);
             ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(offer.getItem().getItem());
-            entries.add(new AcceptedItemEntry(
+            baseEntries.add(new AcceptedItemEntry(
                     offer,
                     name,
                     normalizedName,
@@ -851,15 +904,30 @@ public final class ClientUiState {
                     itemId.toString().toLowerCase(Locale.ROOT)
             ));
         }
-        entries.sort(Comparator
-                .comparing(AcceptedItemEntry::modSortKey, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(AcceptedItemEntry::registrySortKey, String.CASE_INSENSITIVE_ORDER));
-
-        List<AcceptedItemEntry> cachedEntries = List.copyOf(entries);
-        acceptedItemsEntryCache = new AcceptedItemsEntryCache(offers, languageCode, cachedEntries);
+        EnumMap<AcceptedItemsSortMode, List<AcceptedItemEntry>> entriesBySortMode = new EnumMap<>(AcceptedItemsSortMode.class);
+        for (AcceptedItemsSortMode sortMode : AcceptedItemsSortMode.values()) {
+            ArrayList<AcceptedItemEntry> sortedEntries = new ArrayList<>(baseEntries);
+            sortedEntries.sort(sortMode.comparator());
+            entriesBySortMode.put(sortMode, List.copyOf(sortedEntries));
+        }
+        acceptedItemsEntryCache = new AcceptedItemsEntryCache(offers, languageCode, Map.copyOf(entriesBySortMode));
         acceptedItemsFilterCache = null;
-        return cachedEntries;
+        return acceptedItemsEntryCache.entriesBySortMode().get(acceptedItemsSortMode);
+    }
+
+    private static int getAcceptedItemsSortButtonWidth(Font font) {
+        int width = 68;
+        if (font == null) {
+            return width;
+        }
+        for (AcceptedItemsSortMode sortMode : AcceptedItemsSortMode.values()) {
+            width = Math.max(width, font.width(sortMode.label()) + 10);
+        }
+        return width;
+    }
+
+    private static Rect2i toJeiRect(Rect rect) {
+        return new Rect2i(rect.x(), rect.y(), rect.width(), rect.height());
     }
 
     private static String getLanguageCode() {
@@ -982,7 +1050,8 @@ public final class ClientUiState {
     private record SessionState(UUID sessionUuid, Map<OfferKey, ShopUiStatePayload.OfferState> offersByKey) {
     }
 
-    private record ClientBankState(Map<Item, Map<DataComponentMap, Offer>> exactOffersByItem, Map<Item, Offer> genericOffersByItem, List<Offer> offers) {
+    private record ClientBankState(Map<Item, Map<DataComponentMap, Offer>> exactOffersByItem,
+                                   Map<Item, Offer> genericOffersByItem, List<Offer> offers) {
         private static ClientBankState fromPayload(BankUiStatePayload payload) {
             HashMap<Item, Map<DataComponentMap, Offer>> exactOffers = new HashMap<>();
             for (BankUiStatePayload.Entry entry : payload.exactOffers()) {
@@ -1038,13 +1107,61 @@ public final class ClientUiState {
     private record OfferContext(Offer offer, ShopUiStatePayload.OfferState offerState) {
     }
 
-    private record AcceptedItemsEntryCache(List<Offer> sourceOffers, String languageCode, List<AcceptedItemEntry> entries) {
+    private enum AcceptedItemsSortMode {
+        DEFAULT("cobbledollarscommandshops.ui.bank.sort.default"),
+        NAME_ASC("cobbledollarscommandshops.ui.bank.sort.name_asc"),
+        NAME_DESC("cobbledollarscommandshops.ui.bank.sort.name_desc"),
+        PRICE_ASC("cobbledollarscommandshops.ui.bank.sort.price_asc"),
+        PRICE_DESC("cobbledollarscommandshops.ui.bank.sort.price_desc");
+
+        private final String translationKey;
+
+        AcceptedItemsSortMode(String translationKey) {
+            this.translationKey = translationKey;
+        }
+
+        private String label() {
+            return Component.translatable(translationKey).getString();
+        }
+
+        private AcceptedItemsSortMode next() {
+            AcceptedItemsSortMode[] values = values();
+            return values[(ordinal() + 1) % values.length];
+        }
+
+        private Comparator<AcceptedItemEntry> comparator() {
+            Comparator<AcceptedItemEntry> defaultComparator = Comparator
+                    .comparing(AcceptedItemEntry::modSortKey, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(AcceptedItemEntry::registrySortKey, String.CASE_INSENSITIVE_ORDER);
+            return switch (this) {
+                case DEFAULT -> defaultComparator;
+                case NAME_ASC -> Comparator
+                        .comparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(defaultComparator);
+                case NAME_DESC -> Comparator
+                        .comparing(AcceptedItemEntry::name, String.CASE_INSENSITIVE_ORDER.reversed())
+                        .thenComparing(defaultComparator);
+                case PRICE_ASC -> Comparator
+                        .comparing((AcceptedItemEntry entry) -> entry.offer().getPrice())
+                        .thenComparing(defaultComparator);
+                case PRICE_DESC -> Comparator
+                        .comparing((AcceptedItemEntry entry) -> entry.offer().getPrice(), Comparator.reverseOrder())
+                        .thenComparing(defaultComparator);
+            };
+        }
     }
 
-    private record AcceptedItemsFilterCache(List<AcceptedItemEntry> sortedEntries, String normalizedQuery, List<AcceptedItemEntry> filteredEntries) {
+    private record AcceptedItemsEntryCache(List<Offer> sourceOffers, String languageCode,
+                                           Map<AcceptedItemsSortMode, List<AcceptedItemEntry>> entriesBySortMode) {
     }
 
-    private record AcceptedItemEntry(Offer offer, String name, String normalizedName, String modSortKey, String registrySortKey) {
+    private record AcceptedItemsFilterCache(List<AcceptedItemEntry> sortedEntries, String normalizedQuery,
+                                            List<AcceptedItemEntry> filteredEntries) {
+    }
+
+    private record AcceptedItemEntry(Offer offer, String name, String normalizedName, String modSortKey,
+                                     String registrySortKey) {
     }
 
     private record Rect(int x, int y, int width, int height) {
@@ -1065,6 +1182,7 @@ public final class ClientUiState {
             Rect panelRect,
             Rect headerRect,
             Rect searchRect,
+            Rect sortRect,
             Rect contentRect,
             Rect footerRect,
             Rect closeRect,

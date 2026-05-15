@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import net.minecraft.server.MinecraftServer;
+import net.neoforged.fml.ModList;
 import net.neoforged.testframework.junit.EphemeralTestServerProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -40,19 +41,29 @@ class ShopRegistryServerTest {
         ShopRegistry.clear();
 
         ShopRegistry.ReloadSummary summary = ShopRegistry.initialize(server.registryAccess());
+        boolean cobblemonLoaded = ModList.get().isLoaded("cobblemon");
         assertTrue(Files.isDirectory(ShopRegistry.getShopDirectory()));
         assertTrue(Files.isRegularFile(ShopRegistry.getGlobalBankFile()));
-        assertTrue(summary.shopCount() >= 4);
+        assertTrue(summary.shopCount() >= (cobblemonLoaded ? 7 : 4));
         assertTrue(summary.localBankCount() >= 1);
 
         List<String> shopIds = ShopRegistry.listShopIds();
         assertTrue(shopIds.containsAll(List.of("blacksmith", "explorer", "general_store", "syntax_showcase")));
+        if (cobblemonLoaded) {
+            assertTrue(shopIds.containsAll(List.of("trainer_supply", "breeder_corner", "night_market")));
+        }
 
         ShopDefinition generalStore = ShopRegistry.getShop("general_store");
         assertNotNull(generalStore);
         assertEquals("general_store", generalStore.id());
         assertTrue(generalStore.categories().size() >= 1);
         assertTrue(Files.isRegularFile(generalStore.sourceFile()));
+        if (cobblemonLoaded) {
+            ShopDefinition nightMarket = ShopRegistry.getShop("night_market");
+            assertNotNull(nightMarket);
+            assertTrue(nightMarket.hasTimeConditions());
+            assertTrue(nightMarket.denyMessage() != null && !nightMarket.denyMessage().isBlank());
+        }
     }
 
     @Test

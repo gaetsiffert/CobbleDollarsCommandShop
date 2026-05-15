@@ -25,13 +25,13 @@ public final class ConfigGuideFiles {
     public static String defaultGuideText() {
         return """
                 # CobbleDollars Command Shops Configuration Guide
-
+                
                 This guide documents the current configuration format.
                 The format is centered around `match.include` / `match.exclude`.
                 Older examples that put `item`, `stack`, or `tag` directly on an offer are obsolete.
-
+                
                 ## Directory Layout
-
+                
                 ```text
                 config/cobbledollarscommandshops/
                   CONFIG_GUIDE.md
@@ -48,13 +48,13 @@ public final class ConfigGuideFiles {
                       bank.json
                       shop.json
                 ```
-
+                
                 `global_bank.json` is the fallback bank for every custom shop.
                 If `shops/<shop_id>/bank.json` exists, that file is used instead of the global bank for that shop.
                 `syntax_showcase` is generated as a living example of every supported matching mechanic.
-
+                
                 ## Commands
-
+                
                 - `/cdshops open <shop>`
                 - `/cdshops open <shop> <player>`
                 - `/cdshops reload`
@@ -67,12 +67,12 @@ public final class ConfigGuideFiles {
                 - `/cdshops visibility <shop> disable [message]`
                 - `/cdshops list`
                 - `/cdshops where`
-
+                
                 ## Shop File
-
+                
                 Shop ids come from the folder name, not from JSON.
                 Example: `config/cobbledollarscommandshops/shops/syntax_showcase/shop.json`
-
+                
                 ```json
                 {
                   "deny_message": "This showcase is blocked for your current access profile.",
@@ -111,9 +111,9 @@ public final class ConfigGuideFiles {
                   ]
                 }
                 ```
-
+                
                 ### Shop Fields
-
+                
                 - `deny_message`: optional raw text message shown when the player cannot open the shop
                 - `conditions`: optional conditions applied to the whole shop
                 - `categories`: required array
@@ -128,12 +128,12 @@ public final class ConfigGuideFiles {
                 - `offers[].restock`: optional restock rule
                 - `offers[].purchase_bonuses`: optional bonuses granted only when enough bundles are bought in one transaction
                 - `offers[].conditions`: optional conditions for a single offer
-
+                
                 The CobbleDollars amount selector buys multiple copies of the offer.  
                 Example: if an offer uses `count: 32` for arrows and the player buys amount `2`, they receive `64` arrows.
-
+                
                 Purchase bonus example:
-
+                
                 ```json
                 {
                   "purchase_bonuses": [
@@ -146,15 +146,15 @@ public final class ConfigGuideFiles {
                   ]
                 }
                 ```
-
+                
                 In that example, the reward is granted only when the player buys `10` bundles in one purchase.
                 Buying `5` and then `5` does not trigger the bonus.
                 If an offer has finite stock, `required_bundles` cannot be greater than that stock.
-
+                
                 ## Bank File
-
+                
                 A bank can still be flat:
-
+                
                 ```json
                 {
                   "offers": [
@@ -169,9 +169,9 @@ public final class ConfigGuideFiles {
                   ]
                 }
                 ```
-
+                
                 Or grouped by categories:
-
+                
                 ```json
                 {
                   "conditions": {
@@ -202,9 +202,9 @@ public final class ConfigGuideFiles {
                   ]
                 }
                 ```
-
+                
                 ### Bank Fields
-
+                
                 - `conditions`: optional conditions for the whole bank
                 - `offers`: direct list of bank entries
                 - `categories`: optional category list instead of `offers`
@@ -213,14 +213,14 @@ public final class ConfigGuideFiles {
                 - `offers[].match`: required match block
                 - `offers[].price`: unit value paid to the player
                 - `offers[].conditions`: optional conditions for a single bank entry
-
+                
                 Bank categories help organize large files, but CobbleDollars still receives a flat runtime bank.
                 Bank offers do not support a `count` field.
-
+                
                 ## Match Syntax
-
+                
                 Every shop offer and bank entry must define:
-
+                
                 ```json
                 "match": {
                   "include": [
@@ -231,30 +231,30 @@ public final class ConfigGuideFiles {
                   ]
                 }
                 ```
-
+                
                 `include` is required and must contain at least one entry.  
                 `exclude` is optional and can contain zero or more entries.
-
+                
                 Each entry inside `include` or `exclude` must define exactly one of:
-
+                
                 - `item`
                 - `stack`
                 - `tag`
                 - `mod`
-
+                
                 Examples:
-
+                
                 ```json
                 { "item": "minecraft:oak_log" }
                 { "stack": "minecraft:paper[custom_data={quest_id:\\\"syntax_ticket\\\"}]" }
                 { "tag": "minecraft:logs" }
                 { "mod": "minecraft" }
                 ```
-
+                
                 `item`, `tag`, `mod`, `include`, and `exclude` all accept multiple entries.
-
+                
                 Example with multiple includes and excludes:
-
+                
                 ```json
                 {
                   "match": {
@@ -269,20 +269,20 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 ## Matching Priority
-
+                
                 When several visible rules target the same concrete item, the mod resolves them with this priority:
-
+                
                 1. `stack`
                 2. `item`
                 3. `tag`
                 4. `mod`
-
+                
                 If two visible rules have the same priority, the first declared rule wins.
-
+                
                 Example:
-
+                
                 ```json
                 [
                   {
@@ -303,13 +303,13 @@ public final class ConfigGuideFiles {
                   }
                 ]
                 ```
-
+                
                 Here `oak_log` takes the explicit `item` rule at `5`, while the other logs stay at `2`.
-
+                
                 ## Fallback vs Strict Override
-
+                
                 **Fallback override**: do not exclude the specific item from the broad rule.
-
+                
                 ```json
                 {
                   "match": {
@@ -320,7 +320,7 @@ public final class ConfigGuideFiles {
                   "price": 2
                 }
                 ```
-
+                
                 ```json
                 {
                   "match": {
@@ -334,11 +334,11 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 If `vip_shop` is missing, `oak_log` falls back to the broad `tag` rule.
-
+                
                 **Strict override**: explicitly exclude the specific item from the broad rule.
-
+                
                 ```json
                 {
                   "match": {
@@ -352,15 +352,15 @@ public final class ConfigGuideFiles {
                   "price": 2
                 }
                 ```
-
+                
                 In that case, `oak_log` only exists if another rule reintroduces it.
-
+                
                 ## Conditions
-
+                
                 Conditions can be used on shops, shop categories, shop offers, banks, bank categories, and bank offers.
-
+                
                 Supported condition keys:
-
+                
                 - `player_tags_all`
                 - `player_tags_any`
                 - `player_tags_none`
@@ -369,9 +369,9 @@ public final class ConfigGuideFiles {
                 - `dimensions_any`
                 - `time_ranges_any`
                 - `scores_all`
-
+                
                 Example:
-
+                
                 ```json
                 {
                   "conditions": {
@@ -389,39 +389,39 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 Conditions are evaluated before priority resolution.  
                 A more specific rule only wins if its own conditions pass.
-
+                
                 ### Time Range Fields
-
+                
                 - `start_tick`: start of the allowed in-game range, between `0` and `23999`
                 - `end_tick`: end of the allowed in-game range, between `0` and `23999`
                 - `start_tick` and `end_tick` must be different
-
+                
                 Ranges use Minecraft day time:
-
+                
                 - sunrise: around `0`
                 - day: roughly `1000` to `12000`
                 - sunset: around `12000`
                 - night: roughly `13000` to `23000`
-
+                
                 Wrap-around ranges are supported.  
                 Example: `{ "start_tick": 13000, "end_tick": 2000 }` matches late night through dawn.
-
+                
                 ### Score Condition Fields
-
+                
                 - `objective`: scoreboard objective name
                 - `min`: optional minimum value
                 - `max`: optional maximum value
                 - `equals`: optional exact value
-
+                
                 A score condition must define at least one of `min`, `max`, or `equals`.
-
+                
                 ## Restock Rules
-
+                
                 Interval restock:
-
+                
                 ```json
                 {
                   "restock": {
@@ -431,12 +431,12 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 For `interval` restock, the recovery timer starts when stock first drops below full.
                 Later purchases do not restart that timer while the offer is still below its maximum stock.
-
+                
                 Daily reset:
-
+                
                 ```json
                 {
                   "restock": {
@@ -447,17 +447,18 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 ## Generated Examples
-
+                
                 By default the mod generates:
-
+                
                 - practical starter shops: `general_store`, `blacksmith`, `explorer`
+                - when Cobblemon is loaded: `trainer_supply`, `breeder_corner`, `night_market`
                 - a practical fallback bank: `global_bank.json`
                 - a dedicated showcase shop with a local bank: `shops/syntax_showcase/`
-
+                
                 `syntax_showcase` is where you can find examples of:
-
+                
                 - `item`
                 - `stack`
                 - `tag`
@@ -470,13 +471,13 @@ public final class ConfigGuideFiles {
                 - every condition type: `player_tags_all`, `player_tags_any`, `player_tags_none`, `advancements_all`, `advancements_any`, `dimensions_any`, `time_ranges_any`, `scores_all`
                 - shop / category / offer conditions
                 - local bank override
-
+                
                 ## Feedback Configuration
-
+                
                 `feedback.json` controls the fallback player feedback used when the client does not have this mod installed.
                 In pure server-only mode it can use action bars, chat messages, and sounds.
                 When a container screen such as a shop or bank is open, `action_bar` falls back to chat automatically because the action bar is hidden behind that UI.
-
+                
                 ```json
                 {
                   "buy_success": {
@@ -505,37 +506,37 @@ public final class ConfigGuideFiles {
                   }
                 }
                 ```
-
+                
                 Supported feedback channels:
-
+                
                 - `action_bar`
                 - `chat`
                 - `sound`
-
+                
                 Sound values can be either:
-
+                
                 - a string resource id such as `"minecraft:entity.villager.no"`
                 - or an object with `id`, `volume`, and `pitch`
-
+                
                 Built-in feedback text uses the player's language when the client supports this mod, or the normal Minecraft translation system for server-side messages. This project ships `en_us` and `fr_fr`.
-
+                
                 ## Optional Client Layer
-
+                
                 If the same jar is installed on the client, this mod adds a thin CobbleDollars UI layer without moving any gameplay authority to the client.
-
+                
                 With the client layer present:
-
+                
                 - shop and bank feedback is rendered directly on top of the CobbleDollars screen instead of using chat fallback
                 - the selected offer can show the next restock amount and exact next restock time using server-provided timestamps
-
+                
                 Without the client layer:
-
+                
                 - custom shops still work normally
                 - all validation, stock, bank rules, and conditions still stay server-side
                 - feedback falls back to the channels configured in `feedback.json`
-
+                
                 ## Notes
-
+                
                 - Player stock is persistent and stored server-side.
                 - Restock uses real time, not in-game day time.
                 - Config files are cached in memory.

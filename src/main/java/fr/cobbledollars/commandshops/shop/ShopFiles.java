@@ -23,11 +23,13 @@ import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.Items;
 import net.neoforged.fml.loading.FMLPaths;
+import net.neoforged.fml.ModList;
 
 public final class ShopFiles {
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .create();
+    private static final String COBBLEMON_MOD_ID = "cobblemon";
     private static final String SHOP_FILENAME = "shop.json";
     private static final Path CONFIG_DIRECTORY = FMLPaths.CONFIGDIR.get().resolve(CobbleDollarsCommandShopsMod.MODID);
     private static final Path SHOP_DIRECTORY = CONFIG_DIRECTORY.resolve("shops");
@@ -52,6 +54,11 @@ public final class ShopFiles {
         ensureShopExists("general_store", createGeneralStoreShop());
         ensureShopExists("blacksmith", createBlacksmithShop());
         ensureShopExists("explorer", createExplorerShop());
+        if (isCobblemonLoaded()) {
+            ensureShopJsonExists("trainer_supply", createTrainerSupplyShopJson());
+            ensureShopJsonExists("breeder_corner", createBreederCornerShopJson());
+            ensureShopJsonExists("night_market", createNightMarketShopJson());
+        }
         ensureShopJsonExists("syntax_showcase", createSyntaxShowcaseShopJson());
         BankFiles.ensureLocalBankJsonExists("syntax_showcase", BankFiles.createSyntaxShowcaseBankJson());
     }
@@ -394,6 +401,307 @@ public final class ShopFiles {
 
     private static ItemMatchExpression exactItemMatch(net.minecraft.world.item.Item item, String itemId) {
         return ItemMatchExpression.include(new ItemMatchAtom.ExactItem(item, itemId));
+    }
+
+    private static boolean isCobblemonLoaded() {
+        return ModList.get().isLoaded(COBBLEMON_MOD_ID);
+    }
+
+    private static String createTrainerSupplyShopJson() {
+        return """
+                {
+                  "categories": [
+                    {
+                      "name": "Capture",
+                      "offers": [
+                        {
+                          "id": "poke_ball_crate",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:poke_ball" }
+                            ]
+                          },
+                          "count": 16,
+                          "price": 240
+                        },
+                        {
+                          "id": "great_ball_pack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:great_ball" }
+                            ]
+                          },
+                          "count": 8,
+                          "price": 320
+                        },
+                        {
+                          "id": "heal_ball_pack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:heal_ball" }
+                            ]
+                          },
+                          "count": 8,
+                          "price": 300
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Field Care",
+                      "offers": [
+                        {
+                          "id": "trainer_potions",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:potion" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 90
+                        },
+                        {
+                          "id": "super_potion_duo",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:super_potion" }
+                            ]
+                          },
+                          "count": 2,
+                          "price": 110
+                        },
+                        {
+                          "id": "exp_candy_xs_bundle",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:exp_candy_xs" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 120
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+    }
+
+    private static String createBreederCornerShopJson() {
+        return """
+                {
+                  "categories": [
+                    {
+                      "name": "Berries",
+                      "offers": [
+                        {
+                          "id": "oran_berry_stack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:oran_berry" }
+                            ]
+                          },
+                          "count": 8,
+                          "price": 88
+                        },
+                        {
+                          "id": "sitrus_berry_bundle",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:sitrus_berry" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 120
+                        },
+                        {
+                          "id": "leppa_berry_bundle",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:leppa_berry" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 108
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Progression",
+                      "offers": [
+                        {
+                          "id": "link_cable",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:link_cable" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 260,
+                          "stock": 3,
+                          "restock": {
+                            "type": "daily_reset",
+                            "hour": 4,
+                            "minute": 0,
+                            "time_zone": "%s"
+                          }
+                        },
+                        {
+                          "id": "shiny_stone",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:shiny_stone" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 240,
+                          "stock": 2,
+                          "restock": {
+                            "type": "daily_reset",
+                            "hour": 4,
+                            "minute": 0,
+                            "time_zone": "%s"
+                          }
+                        },
+                        {
+                          "id": "moon_stone",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:moon_stone" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 220,
+                          "stock": 2,
+                          "restock": {
+                            "type": "daily_reset",
+                            "hour": 4,
+                            "minute": 0,
+                            "time_zone": "%s"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted(
+                ZoneId.systemDefault().getId(),
+                ZoneId.systemDefault().getId(),
+                ZoneId.systemDefault().getId()
+        );
+    }
+
+    private static String createNightMarketShopJson() {
+        return """
+                {
+                  "deny_message": "This market opens only after nightfall.",
+                  "conditions": {
+                    "time_ranges_any": [
+                      { "start_tick": 13000, "end_tick": 1000 }
+                    ]
+                  },
+                  "categories": [
+                    {
+                      "name": "Night Capture",
+                      "offers": [
+                        {
+                          "id": "dusk_ball_pack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:dusk_ball" }
+                            ]
+                          },
+                          "count": 8,
+                          "price": 300
+                        },
+                        {
+                          "id": "quick_ball_pack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:quick_ball" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 240,
+                          "stock": 6,
+                          "restock": {
+                            "type": "interval",
+                            "amount": 1,
+                            "every_seconds": 900
+                          }
+                        },
+                        {
+                          "id": "luxury_ball_pack",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:luxury_ball" }
+                            ]
+                          },
+                          "count": 4,
+                          "price": 260
+                        }
+                      ]
+                    },
+                    {
+                      "name": "Moonlight Curios",
+                      "offers": [
+                        {
+                          "id": "rare_candy",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:rare_candy" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 500,
+                          "stock": 1,
+                          "restock": {
+                            "type": "daily_reset",
+                            "hour": 4,
+                            "minute": 0,
+                            "time_zone": "%s"
+                          }
+                        },
+                        {
+                          "id": "exp_candy_m_pair",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:exp_candy_m" }
+                            ]
+                          },
+                          "count": 2,
+                          "price": 360,
+                          "stock": 4,
+                          "restock": {
+                            "type": "interval",
+                            "amount": 1,
+                            "every_seconds": 1200
+                          }
+                        },
+                        {
+                          "id": "dusk_stone",
+                          "match": {
+                            "include": [
+                              { "item": "cobblemon:dusk_stone" }
+                            ]
+                          },
+                          "count": 1,
+                          "price": 240,
+                          "stock": 2,
+                          "restock": {
+                            "type": "daily_reset",
+                            "hour": 4,
+                            "minute": 0,
+                            "time_zone": "%s"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted(
+                ZoneId.systemDefault().getId(),
+                ZoneId.systemDefault().getId()
+        );
     }
 
     private static String createSyntaxShowcaseShopJson() {

@@ -427,6 +427,7 @@ Daily reset:
 By default the mod generates:
 
 - practical starter shops: `general_store`, `blacksmith`, `explorer`
+- when Cobblemon is loaded: `trainer_supply`, `breeder_corner`, `night_market`
 - a practical fallback bank: `global_bank.json`
 - a dedicated showcase shop with a local bank: `shops/syntax_showcase/`
 
