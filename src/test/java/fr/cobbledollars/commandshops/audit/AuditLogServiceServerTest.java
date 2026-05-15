@@ -11,9 +11,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
+import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,14 +44,14 @@ class AuditLogServiceServerTest {
         assertEquals(1, first.get("schema_version").getAsInt());
         assertEquals("visibility_changed", first.get("type").getAsString());
         assertEquals("general_store", first.get("shop_id").getAsString());
-        assertEquals("enable", first.get("action").getAsString());
         assertTrue(first.get("enabled").getAsBoolean());
+        assertFalse(first.has("action"));
         assertEquals("tester", first.get("actor_name").getAsString());
         assertEquals("uuid-1", first.get("actor_uuid").getAsString());
 
         JsonObject second = JsonParser.parseString(lines.get(1)).getAsJsonObject();
-        assertEquals("disable", second.get("action").getAsString());
         assertFalse(second.get("enabled").getAsBoolean());
+        assertFalse(second.has("action"));
         assertEquals("Maintenance", second.get("reason_message").getAsString());
     }
 
@@ -71,6 +73,30 @@ class AuditLogServiceServerTest {
         AuditLogService.shutdown();
 
         assertFalse(Files.exists(AuditLogService.getLogFile()));
+    }
+
+    @Test
+    void initializeRotatesExistingAuditLogIntoCompressedArchive(MinecraftServer server) throws Exception {
+        Path logFile = AuditLogService.getLogFile();
+        Files.createDirectories(logFile.getParent());
+        Files.writeString(logFile, """
+                {"schema_version":1,"type":"visibility_changed","timestamp":"2026-05-15T10:00:00Z","shop_id":"general_store","enabled":true}
+                """);
+
+        AuditLogService.initialize();
+
+        assertFalse(Files.exists(logFile));
+        List<Path> files = AuditLogService.listReadableLogFiles();
+        assertEquals(1, files.size());
+        Path archivedFile = files.get(0);
+        assertTrue(archivedFile.getFileName().toString().startsWith("audit-"));
+        assertTrue(archivedFile.getFileName().toString().endsWith(".jsonl.zip"));
+
+        try (ZipInputStream inputStream = new ZipInputStream(Files.newInputStream(archivedFile), StandardCharsets.UTF_8)) {
+            assertEquals(archivedFile.getFileName().toString().replace(".zip", ""), inputStream.getNextEntry().getName());
+            String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(content.contains("\"shop_id\":\"general_store\""));
+        }
     }
 
     private static void deleteRecursively(Path path) throws IOException {

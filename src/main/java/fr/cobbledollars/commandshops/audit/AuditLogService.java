@@ -16,23 +16,42 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.loading.FMLPaths;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.Writer;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public final class AuditLogService {
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
     private static final int SCHEMA_VERSION = 1;
+    private static final String ACTIVE_LOG_FILE_NAME = "audit.jsonl";
+    private static final String ARCHIVE_LOG_PREFIX = "audit-";
+    private static final String PLAIN_LOG_SUFFIX = ".jsonl";
+    private static final String COMPRESSED_LOG_SUFFIX = ".jsonl.zip";
+    private static final DateTimeFormatter ARCHIVE_TIMESTAMP_FORMATTER = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd_HH-mm-ss")
+            .withZone(ZoneId.systemDefault());
     private static final Path LOG_FILE = FMLPaths.GAMEDIR.get()
             .resolve("logs")
             .resolve(CobbleDollarsCommandShopsMod.MODID)
-            .resolve("audit.jsonl");
+            .resolve(ACTIVE_LOG_FILE_NAME);
     private static final Object LOCK = new Object();
     private static final String LINE_SEPARATOR = System.lineSeparator();
 
@@ -48,6 +67,7 @@ public final class AuditLogService {
             closeWriterQuietly();
             logDirectoryReady = false;
             AuditFiles.ensureDefaultConfigExists();
+            rotateActiveLogIfPresent();
             config = AuditFiles.loadConfig();
         }
     }
@@ -70,6 +90,25 @@ public final class AuditLogService {
 
     public static Path getLogFile() {
         return LOG_FILE;
+    }
+
+    public static List<Path> listReadableLogFiles() throws IOException {
+        Path logDirectory = LOG_FILE.getParent();
+        if (!Files.exists(logDirectory)) {
+            return List.of();
+        }
+
+        ArrayList<Path> files = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(logDirectory)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(AuditLogService::isArchivedAuditLogFile)
+                    .sorted((left, right) -> left.getFileName().toString().compareTo(right.getFileName().toString()))
+                    .forEach(files::add);
+        }
+        if (Files.exists(LOG_FILE)) {
+            files.add(LOG_FILE);
+        }
+        return List.copyOf(files);
     }
 
     public static void logBuySuccess(
@@ -120,22 +159,10 @@ public final class AuditLogService {
         event.addProperty("reason", reason.name().toLowerCase(Locale.ROOT));
         if (offer != null) {
             event.addProperty("offer_id", offer.sourceId());
-            event.addProperty("offer_match_kind", offer.matchKind().name().toLowerCase(Locale.ROOT));
         }
         if (bundleCount != null && bundleCount > 0) {
             event.addProperty("bundle_count", bundleCount);
-            if (offer != null) {
-                event.addProperty("item_count_total", StackCountMath.multiplyToLong(offer.itemStack().getCount(), bundleCount));
-            }
         }
-        if (currencyAmount != null) {
-            event.addProperty("currency_flow", "sink");
-            event.addProperty("currency_amount", currencyAmount.toString());
-        }
-        if (offer != null && bundleCount != null && bundleCount > 0) {
-            event.add("item_lines", singleItemArray(offer.itemStack(), StackCountMath.multiplyToLong(offer.itemStack().getCount(), bundleCount), null, currencyAmount));
-        }
-        addStockState(event, stockBefore, null);
         append(event);
     }
 
@@ -156,8 +183,8 @@ public final class AuditLogService {
         event.addProperty("currency_flow", "source");
         event.addProperty("currency_amount", currencyAmount.toString());
         JsonArray lines = new JsonArray();
-        for (SoldItemLine itemLine : itemLines) {
-            lines.add(itemLineToJson(itemLine.stack(), itemLine.stack().getCount(), itemLine.unitPrice(), itemLine.lineTotal()));
+        for (AggregatedSoldItemLine itemLine : aggregateSoldItemLines(itemLines)) {
+            lines.add(itemLineToJson(itemLine.stack(), itemLine.count(), itemLine.unitPrice(), itemLine.lineTotal()));
         }
         event.add("item_lines", lines);
         append(event);
@@ -181,7 +208,6 @@ public final class AuditLogService {
 
         JsonObject event = baseAdminEvent(AuditEventType.VISIBILITY_CHANGED);
         event.addProperty("shop_id", shopId);
-        event.addProperty("action", enabled ? "enable" : "disable");
         event.addProperty("enabled", enabled);
         if (reasonMessage != null && !reasonMessage.isBlank()) {
             event.addProperty("reason_message", reasonMessage);
@@ -239,7 +265,6 @@ public final class AuditLogService {
         JsonObject object = new JsonObject();
         object.addProperty("item", String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem())));
         object.addProperty("count", count);
-        object.addProperty("name", stack.getHoverName().getString());
         DataComponentMap components = stack.getComponents();
         if (!components.isEmpty()) {
             object.addProperty("components_hash", Integer.toHexString(components.hashCode()));
@@ -251,6 +276,31 @@ public final class AuditLogService {
             object.addProperty("line_total", lineTotal.toString());
         }
         return object;
+    }
+
+    private static List<AggregatedSoldItemLine> aggregateSoldItemLines(List<SoldItemLine> itemLines) {
+        LinkedHashMap<SoldItemAggregationKey, AggregatedSoldItemAccumulator> aggregated = new LinkedHashMap<>();
+        for (SoldItemLine itemLine : itemLines) {
+            ItemStack stack = itemLine.stack();
+            String itemId = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+            String componentsHash = null;
+            DataComponentMap components = stack.getComponents();
+            if (!components.isEmpty()) {
+                componentsHash = Integer.toHexString(components.hashCode());
+            }
+
+            SoldItemAggregationKey key = new SoldItemAggregationKey(itemId, componentsHash, itemLine.unitPrice());
+            AggregatedSoldItemAccumulator accumulator = aggregated.computeIfAbsent(
+                    key,
+                    ignored -> new AggregatedSoldItemAccumulator(stack.copy(), 0L, itemLine.unitPrice(), BigInteger.ZERO)
+            );
+            accumulator.count += stack.getCount();
+            accumulator.lineTotal = accumulator.lineTotal.add(itemLine.lineTotal());
+        }
+
+        return aggregated.values().stream()
+                .map(accumulator -> new AggregatedSoldItemLine(accumulator.stack, accumulator.count, accumulator.unitPrice, accumulator.lineTotal))
+                .toList();
     }
 
     private static void addStockState(JsonObject event, Integer stockBefore, Integer stockAfter) {
@@ -295,6 +345,61 @@ public final class AuditLogService {
         logDirectoryReady = true;
     }
 
+    private static void rotateActiveLogIfPresent() throws IOException {
+        if (!Files.exists(LOG_FILE) || Files.size(LOG_FILE) <= 0L) {
+            return;
+        }
+
+        ensureLogDirectory();
+        Path archivedPlainFile = resolveArchivedPlainLogFile();
+        Files.move(LOG_FILE, archivedPlainFile);
+
+        try {
+            compressArchivedLog(archivedPlainFile);
+        } catch (IOException exception) {
+            CobbleDollarsCommandShopsMod.LOGGER.warn("Failed to compress rotated audit log {}", archivedPlainFile, exception);
+        }
+    }
+
+    private static Path resolveArchivedPlainLogFile() {
+        String timestamp = ARCHIVE_TIMESTAMP_FORMATTER.format(Instant.now());
+        Path logDirectory = LOG_FILE.getParent();
+        Path candidate = logDirectory.resolve(ARCHIVE_LOG_PREFIX + timestamp + PLAIN_LOG_SUFFIX);
+        int suffix = 1;
+        while (Files.exists(candidate) || Files.exists(candidate.resolveSibling(candidate.getFileName().toString() + ".zip"))) {
+            candidate = logDirectory.resolve(ARCHIVE_LOG_PREFIX + timestamp + "-" + suffix + PLAIN_LOG_SUFFIX);
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private static void compressArchivedLog(Path sourceFile) throws IOException {
+        Path targetFile = sourceFile.resolveSibling(sourceFile.getFileName().toString() + ".zip");
+        Path tempFile = targetFile.resolveSibling(targetFile.getFileName().toString() + ".tmp");
+
+        try {
+            try (InputStream inputStream = new BufferedInputStream(Files.newInputStream(sourceFile));
+                 OutputStream fileOutputStream = new BufferedOutputStream(Files.newOutputStream(tempFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE));
+                 ZipOutputStream outputStream = new ZipOutputStream(fileOutputStream)) {
+                outputStream.putNextEntry(new ZipEntry(sourceFile.getFileName().toString()));
+                inputStream.transferTo(outputStream);
+                outputStream.closeEntry();
+            }
+
+            Files.move(tempFile, targetFile);
+            Files.deleteIfExists(sourceFile);
+        } catch (IOException exception) {
+            Files.deleteIfExists(tempFile);
+            throw exception;
+        }
+    }
+
+    private static boolean isArchivedAuditLogFile(Path path) {
+        String fileName = path.getFileName().toString();
+        return fileName.startsWith(ARCHIVE_LOG_PREFIX)
+                && (fileName.endsWith(PLAIN_LOG_SUFFIX) || fileName.endsWith(COMPRESSED_LOG_SUFFIX));
+    }
+
     private static void closeWriterQuietly() {
         if (logWriter == null) {
             return;
@@ -311,6 +416,26 @@ public final class AuditLogService {
     public record SoldItemLine(ItemStack stack, BigInteger unitPrice, BigInteger lineTotal) {
         public SoldItemLine {
             stack = stack.copy();
+        }
+    }
+
+    private record AggregatedSoldItemLine(ItemStack stack, long count, BigInteger unitPrice, BigInteger lineTotal) {
+    }
+
+    private record SoldItemAggregationKey(String itemId, String componentsHash, BigInteger unitPrice) {
+    }
+
+    private static final class AggregatedSoldItemAccumulator {
+        private final ItemStack stack;
+        private long count;
+        private final BigInteger unitPrice;
+        private BigInteger lineTotal;
+
+        private AggregatedSoldItemAccumulator(ItemStack stack, long count, BigInteger unitPrice, BigInteger lineTotal) {
+            this.stack = stack;
+            this.count = count;
+            this.unitPrice = unitPrice;
+            this.lineTotal = lineTotal;
         }
     }
 }

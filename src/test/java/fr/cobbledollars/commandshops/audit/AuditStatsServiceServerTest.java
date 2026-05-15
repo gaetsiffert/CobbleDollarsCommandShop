@@ -7,14 +7,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -33,9 +37,9 @@ class AuditStatsServiceServerTest {
     void readSnapshotAggregatesAuditEventsAcrossSummaryAndTopViews(MinecraftServer server) throws Exception {
         Instant now = Instant.parse("2026-05-15T10:00:00Z");
         writeAuditLog(List.of(
-                buySuccess(now.minus(2, ChronoUnit.HOURS), "general_store", "pokeball", "uuid-ash", "Ash", 120, 2, 16, "cobblemon:poke_ball", "Poke Ball", 120),
-                buySuccess(now.minus(90, ChronoUnit.MINUTES), "general_store", "greatball", "uuid-misty", "Misty", 200, 1, 8, "cobblemon:great_ball", "Great Ball", 200),
-                sellSuccess(now.minus(45, ChronoUnit.MINUTES), "general_store", "uuid-ash", "Ash", 45, 3, "cobblemon:oran_berry", "Oran Berry", 15, 45),
+                buySuccess(now.minus(2, ChronoUnit.HOURS), "general_store", "pokeball", "uuid-ash", "Ash", 120, 2, 16, "cobblemon:poke_ball", 120),
+                buySuccess(now.minus(90, ChronoUnit.MINUTES), "general_store", "greatball", "uuid-misty", "Misty", 200, 1, 8, "cobblemon:great_ball", 200),
+                sellSuccess(now.minus(45, ChronoUnit.MINUTES), "general_store", "uuid-ash", "Ash", 45, 3, "cobblemon:oran_berry", 15, 45),
                 buyFailure(now.minus(30, ChronoUnit.MINUTES), "night_market", "moon_ball", "uuid-ash", "Ash"),
                 sellFailure(now.minus(20, ChronoUnit.MINUTES), "general_store", "uuid-misty", "Misty"),
                 visibilityChanged(now.minus(10, ChronoUnit.MINUTES), "night_market", false),
@@ -104,8 +108,8 @@ class AuditStatsServiceServerTest {
     void readSnapshotFiltersEventsByRequestedWindow(MinecraftServer server) throws Exception {
         Instant now = Instant.parse("2026-05-15T10:00:00Z");
         writeAuditLog(List.of(
-                buySuccess(now.minus(9, ChronoUnit.DAYS), "general_store", "old_offer", "uuid-old", "OldTimer", 80, 1, 4, "minecraft:apple", "Apple", 80),
-                buySuccess(now.minus(2, ChronoUnit.DAYS), "general_store", "recent_offer", "uuid-new", "Recent", 50, 1, 2, "minecraft:bread", "Bread", 50)
+                buySuccess(now.minus(9, ChronoUnit.DAYS), "general_store", "old_offer", "uuid-old", "OldTimer", 80, 1, 4, "minecraft:apple", 80),
+                buySuccess(now.minus(2, ChronoUnit.DAYS), "general_store", "recent_offer", "uuid-new", "Recent", 50, 1, 2, "minecraft:bread", 50)
         ));
 
         AuditStatsSnapshot allTime = AuditStatsService.readSnapshot(AuditTimeWindow.ALL, now);
@@ -119,10 +123,45 @@ class AuditStatsServiceServerTest {
         assertNotNull(lastSevenDays.item("minecraft:bread"));
     }
 
+    @Test
+    void readSnapshotIncludesCompressedArchivesAndActiveLog(MinecraftServer server) throws Exception {
+        Instant now = Instant.parse("2026-05-15T10:00:00Z");
+        writeCompressedArchive(
+                "audit-2026-05-14_09-00-00.jsonl.zip",
+                List.of(
+                        buySuccess(now.minus(2, ChronoUnit.DAYS), "general_store", "archive_offer", "uuid-archive", "Archive", 90, 1, 3, "minecraft:apple", 90),
+                        "not-json"
+                )
+        );
+        writeAuditLog(List.of(
+                buySuccess(now.minus(1, ChronoUnit.HOURS), "general_store", "active_offer", "uuid-active", "Active", 30, 1, 1, "minecraft:bread", 30)
+        ));
+
+        AuditStatsSnapshot snapshot = AuditStatsService.readSnapshot(AuditTimeWindow.ALL, now);
+
+        assertEquals(2L, snapshot.buySuccessCount());
+        assertEquals(new BigInteger("120"), snapshot.totalSpent());
+        assertNotNull(snapshot.item("minecraft:apple"));
+        assertNotNull(snapshot.item("minecraft:bread"));
+    }
+
     private static void writeAuditLog(List<String> lines) throws IOException {
         Path logFile = AuditLogService.getLogFile();
         Files.createDirectories(logFile.getParent());
         Files.write(logFile, lines);
+    }
+
+    private static void writeCompressedArchive(String fileName, List<String> lines) throws IOException {
+        Path archiveFile = AuditLogService.getLogFile().getParent().resolve(fileName);
+        Files.createDirectories(archiveFile.getParent());
+        try (ZipOutputStream outputStream = new ZipOutputStream(Files.newOutputStream(archiveFile), StandardCharsets.UTF_8)) {
+            outputStream.putNextEntry(new ZipEntry(fileName.replace(".zip", "")));
+            for (String line : lines) {
+                outputStream.write(line.getBytes(StandardCharsets.UTF_8));
+                outputStream.write('\n');
+            }
+            outputStream.closeEntry();
+        }
     }
 
     private static String buySuccess(
@@ -135,12 +174,11 @@ class AuditStatsServiceServerTest {
             int bundleCount,
             int itemCountTotal,
             String itemId,
-            String itemName,
             int lineTotal
     ) {
         return """
-                {"schema_version":1,"type":"buy_success","timestamp":"%s","shop_id":"%s","offer_id":"%s","player_uuid":"%s","player_name":"%s","currency_amount":"%s","bundle_count":%s,"item_count_total":%s,"item_lines":[{"item":"%s","count":%s,"name":"%s","line_total":"%s"}],"bonus_lines":[]}
-                """.formatted(timestamp, shopId, offerId, playerUuid, playerName, currencyAmount, bundleCount, itemCountTotal, itemId, itemCountTotal, itemName, lineTotal);
+                {"schema_version":1,"type":"buy_success","timestamp":"%s","shop_id":"%s","offer_id":"%s","player_uuid":"%s","player_name":"%s","currency_amount":"%s","bundle_count":%s,"item_count_total":%s,"item_lines":[{"item":"%s","count":%s,"line_total":"%s"}],"bonus_lines":[]}
+                """.formatted(timestamp, shopId, offerId, playerUuid, playerName, currencyAmount, bundleCount, itemCountTotal, itemId, itemCountTotal, lineTotal);
     }
 
     private static String sellSuccess(
@@ -151,13 +189,12 @@ class AuditStatsServiceServerTest {
             int currencyAmount,
             int itemCountTotal,
             String itemId,
-            String itemName,
             int unitPrice,
             int lineTotal
     ) {
         return """
-                {"schema_version":1,"type":"sell_success","timestamp":"%s","shop_id":"%s","player_uuid":"%s","player_name":"%s","currency_amount":"%s","item_count_total":%s,"item_lines":[{"item":"%s","count":%s,"name":"%s","unit_price":"%s","line_total":"%s"}]}
-                """.formatted(timestamp, shopId, playerUuid, playerName, currencyAmount, itemCountTotal, itemId, itemCountTotal, itemName, unitPrice, lineTotal);
+                {"schema_version":1,"type":"sell_success","timestamp":"%s","shop_id":"%s","player_uuid":"%s","player_name":"%s","currency_amount":"%s","item_count_total":%s,"item_lines":[{"item":"%s","count":%s,"unit_price":"%s","line_total":"%s"}]}
+                """.formatted(timestamp, shopId, playerUuid, playerName, currencyAmount, itemCountTotal, itemId, itemCountTotal, unitPrice, lineTotal);
     }
 
     private static String buyFailure(Instant timestamp, String shopId, String offerId, String playerUuid, String playerName) {
@@ -174,8 +211,8 @@ class AuditStatsServiceServerTest {
 
     private static String visibilityChanged(Instant timestamp, String shopId, boolean enabled) {
         return """
-                {"schema_version":1,"type":"visibility_changed","timestamp":"%s","shop_id":"%s","action":"%s","enabled":%s}
-                """.formatted(timestamp, shopId, enabled ? "enable" : "disable", enabled);
+                {"schema_version":1,"type":"visibility_changed","timestamp":"%s","shop_id":"%s","enabled":%s}
+                """.formatted(timestamp, shopId, enabled);
     }
 
     private static void deleteRecursively(Path path) throws IOException {

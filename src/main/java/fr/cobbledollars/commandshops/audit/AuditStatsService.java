@@ -8,13 +8,18 @@ import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.zip.ZipInputStream;
 
 public final class AuditStatsService {
     private AuditStatsService() {
@@ -25,36 +30,58 @@ public final class AuditStatsService {
     }
 
     static AuditStatsSnapshot readSnapshot(AuditTimeWindow window, Instant now) throws IOException {
-        Path logFile = AuditLogService.getLogFile();
-        if (!Files.exists(logFile)) {
+        List<Path> logFiles = AuditLogService.listReadableLogFiles();
+        if (logFiles.isEmpty()) {
             return AuditStatsSnapshot.empty(window);
         }
 
         MutableSnapshot snapshot = new MutableSnapshot(window);
-        try (BufferedReader reader = Files.newBufferedReader(logFile)) {
-            String line;
-            int lineNumber = 0;
-            while ((line = reader.readLine()) != null) {
-                lineNumber++;
-                if (line.isBlank()) {
-                    continue;
-                }
-                try {
-                    JsonObject event = JsonParser.parseString(line).getAsJsonObject();
-                    if (!window.includes(readInstant(event, "timestamp"), now)) {
+        for (Path logFile : logFiles) {
+            try (BufferedReader reader = openReader(logFile)) {
+                String line;
+                int lineNumber = 0;
+                while ((line = reader.readLine()) != null) {
+                    lineNumber++;
+                    if (line.isBlank()) {
                         continue;
                     }
-                    AuditEventType eventType = AuditEventType.fromEventName(readString(event, "type"));
-                    if (eventType == null) {
-                        continue;
+                    try {
+                        JsonObject event = JsonParser.parseString(line).getAsJsonObject();
+                        if (!window.includes(readInstant(event, "timestamp"), now)) {
+                            continue;
+                        }
+                        AuditEventType eventType = AuditEventType.fromEventName(readString(event, "type"));
+                        if (eventType == null) {
+                            continue;
+                        }
+                        snapshot.accept(eventType, event);
+                    } catch (RuntimeException exception) {
+                        CobbleDollarsCommandShopsMod.LOGGER.warn("Skipping invalid audit log line {} in {}", lineNumber, logFile, exception);
                     }
-                    snapshot.accept(eventType, event);
-                } catch (RuntimeException exception) {
-                    CobbleDollarsCommandShopsMod.LOGGER.warn("Skipping invalid audit log line {} in {}", lineNumber, logFile, exception);
                 }
+            } catch (IOException exception) {
+                CobbleDollarsCommandShopsMod.LOGGER.warn("Skipping unreadable audit log file {}", logFile, exception);
             }
         }
         return snapshot.freeze();
+    }
+
+    private static BufferedReader openReader(Path logFile) throws IOException {
+        if (logFile.getFileName().toString().endsWith(".zip")) {
+            InputStream inputStream = Files.newInputStream(logFile);
+            try {
+                ZipInputStream zipInputStream = new ZipInputStream(inputStream, StandardCharsets.UTF_8);
+                if (zipInputStream.getNextEntry() == null) {
+                    zipInputStream.close();
+                    throw new IOException("Audit archive contains no entry: " + logFile);
+                }
+                return new BufferedReader(new InputStreamReader(zipInputStream, StandardCharsets.UTF_8));
+            } catch (IOException exception) {
+                inputStream.close();
+                throw exception;
+            }
+        }
+        return Files.newBufferedReader(logFile);
     }
 
     private static Instant readInstant(JsonObject object, String key) {
@@ -65,6 +92,14 @@ public final class AuditStatsService {
         JsonElement element = object.get(key);
         if (element == null || element.isJsonNull()) {
             throw new IllegalArgumentException("Missing field '" + key + "'.");
+        }
+        return element.getAsString();
+    }
+
+    private static String readOptionalString(JsonObject object, String key, String defaultValue) {
+        JsonElement element = object.get(key);
+        if (element == null || element.isJsonNull()) {
+            return defaultValue;
         }
         return element.getAsString();
     }
@@ -189,7 +224,7 @@ public final class AuditStatsService {
             for (JsonElement element : itemLines) {
                 JsonObject line = element.getAsJsonObject();
                 String itemId = readString(line, "item");
-                String itemName = readString(line, "name");
+                String itemName = readOptionalString(line, "name", itemId);
                 long count = readLong(line, "count", 0L);
                 BigInteger lineTotal = readBigInteger(line, "line_total", BigInteger.ZERO);
                 item(itemId, itemName).onBought(count, lineTotal);
@@ -200,7 +235,7 @@ public final class AuditStatsService {
             for (JsonElement element : itemLines) {
                 JsonObject line = element.getAsJsonObject();
                 String itemId = readString(line, "item");
-                String itemName = readString(line, "name");
+                String itemName = readOptionalString(line, "name", itemId);
                 long count = readLong(line, "count", 0L);
                 BigInteger lineTotal = readBigInteger(line, "line_total", BigInteger.ZERO);
                 item(itemId, itemName).onSold(count, lineTotal);
