@@ -163,6 +163,7 @@ neoForge {
 // "optional", meaning it will not be pulled by dependents of this mod.
 configurations {
     runtimeClasspath.extendsFrom localRuntime
+    testCompileOnly.extendsFrom compileOnly
     gametestImplementation.extendsFrom implementation, compileOnly
     gametestRuntimeOnly.extendsFrom runtimeOnly, localRuntime
 }
@@ -191,6 +192,8 @@ dependencies {
     compileOnly "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
     compileOnly "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"
     compileOnly "maven.modrinth:kotlin-for-forge:${kotlin_for_forge_modrinth_version}"
+    // Kotlin for Forge supplies this at runtime; Beta 6 bank constructors expose kotlin.Pair.
+    compileOnly "org.jetbrains.kotlin:kotlin-stdlib:2.4.0"
     localRuntime "net.neoforged:testframework:${neo_version}"
     localRuntime "maven.modrinth:cobbledollars:${cobbledollars_modrinth_version}"
     localRuntime "maven.modrinth:cobblemon:${cobblemon_modrinth_version}"

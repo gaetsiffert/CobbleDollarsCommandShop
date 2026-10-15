@@ -31,6 +31,32 @@ public final class CommandShopSessionGameTests {
     private CommandShopSessionGameTests() {
     }
 
+    @TestHolder(value = "bundle_purchase_fits_existing_inventory_stack", title = "Bundles fit existing inventory stacks")
+    @GameTest(batch = "sessions.bundle_purchase", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void bundle_purchase_fits_existing_inventory_stack(ExtendedGameTestHelper helper) {
+        GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        for (int slot = 0; slot < player.getInventory().items.size(); slot++) {
+            player.getInventory().setItem(slot, new ItemStack(Items.DIRT, 64));
+        }
+        player.getInventory().setItem(0, new ItemStack(Items.BREAD, 58));
+        PlayerExtensionKt.setCobbleDollars(player, BigInteger.valueOf(100));
+        CommandShopSessions.openShop(player, ShopRegistry.getShop("general_store"));
+        ShopMenu menu = (ShopMenu) player.containerMenu;
+        var offer = menu.getShop().get(0).getOffers().getFirst();
+        helper.assertTrue(PlayerExtensionKt.getMaxAmountObtainable(player, offer.getItems().getFirst()) > 0,
+                "Native clients must recognize space in an existing item stack.");
+        BuyPacket packet = new BuyPacket(offer, 0, 0, 0, 1, false, menu.getCobbleMerchant().getMerchantUUID());
+        helper.assertTrue(CommandShopSessions.handleCustomBuy(packet, helper.getLevel().getServer(), player),
+                "The bundle purchase should be handled by the command shop.");
+        helper.assertValueEqual(64, player.getInventory().getItem(0).getCount(), "The purchase should add one six-item bundle.");
+        helper.assertTrue(BigInteger.valueOf(76).equals(PlayerExtensionKt.getCobbleDollars(player)),
+                "One bundle must still cost the configured 24 CobbleDollars.");
+        helper.assertTrue(ItemStack.isSameItemSameComponents(new ItemStack(Items.BREAD), player.getInventory().getItem(0)),
+                "Delivered items must retain their original components.");
+        helper.succeed();
+    }
+
     @TestHolder(
             value = "open_command_opens_shop_menu_for_mock_player",
             title = "Open command opens shop menu",
@@ -166,7 +192,7 @@ public final class CommandShopSessionGameTests {
                 }
             });
 
-            BuyPacket packet = new BuyPacket(runtimeData.getRuntimeOffer(0, 0), 0, 0, 2, true, merchantUuid);
+            BuyPacket packet = new BuyPacket(runtimeData.getRuntimeOffer(0, 0), 0, 0, 0, 2, true, merchantUuid);
             helper.assertTrue(CommandShopSessions.handleCustomBuy(packet, helper.getLevel().getServer(), player),
                     "handleCustomBuy should report that the custom session packet was handled.");
 

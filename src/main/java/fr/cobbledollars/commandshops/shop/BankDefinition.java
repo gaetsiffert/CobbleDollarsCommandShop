@@ -4,13 +4,16 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.math.BigInteger;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.harmex.cobbledollars.common.api.bank.Bank;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 
 public final class BankDefinition {
     private final List<BankCategoryDefinition> categories;
@@ -54,7 +57,10 @@ public final class BankDefinition {
     }
 
     public static Bank emptyBank() {
-        return new Bank(new ArrayList<>());
+        // Native menus replace a bank with no entries by the global bank. An
+        // unmatchable entry preserves a genuinely empty custom bank on both sides.
+        Offer emptyOffer = new Offer(Ingredient.EMPTY, BigInteger.ZERO, DataComponentPatch.EMPTY, -1);
+        return new Bank(Map.of(emptyOffer, List.of()));
     }
 
     public boolean hasPlayerStateConditions() {

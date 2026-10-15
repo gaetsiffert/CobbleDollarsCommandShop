@@ -2,7 +2,8 @@ package fr.cobbledollars.commandshops.shop;
 
 import java.math.BigInteger;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
+import fr.cobbledollars.commandshops.CobbleDollarsOffers;
 import net.minecraft.world.item.ItemStack;
 
 public record ResolvedShopOffer(ShopOfferDefinition source, ItemStack itemStack, ItemMatchAtom.Kind matchKind, String stockKey) {
@@ -44,6 +45,6 @@ public record ResolvedShopOffer(ShopOfferDefinition source, ItemStack itemStack,
     }
 
     public Offer createRuntimeOffer(int currentStock) {
-        return new Offer(itemStack.copy(), price(), currentStock);
+        return CobbleDollarsOffers.createShopOffer(itemStack, price(), currentStock);
     }
 }

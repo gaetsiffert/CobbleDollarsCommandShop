@@ -6,6 +6,11 @@
 
 Server-side NeoForge addon for CobbleDollars on Minecraft `1.21.1`.
 
+Version `1.0.3` requires CobbleDollars `2.0.0+Beta-6.1+1.21.1` or newer. Its commands,
+configuration files, player stock, and optional client installation work as before.
+Clients with the optional addon installed should also update it to `1.0.3`.
+For CobbleDollars Beta 5.1, use addon version `1.0.2`.
+
 This mod adds command-driven CobbleDollars shops with:
 - persistent per-player stock
 - configurable global or per-shop banks

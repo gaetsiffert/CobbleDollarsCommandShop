@@ -5,7 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.cobbledollars.commandshops.CobbleDollarsOffers;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -80,7 +81,7 @@ public record BankUiStatePayload(List<Entry> exactOffers, List<Entry> genericOff
         }
 
         private static Entry fromOffer(Offer offer) {
-            return new Entry(offer.getItem().copy(), offer.getPrice());
+            return new Entry(CobbleDollarsOffers.getItem(offer).copy(), offer.getPrice());
         }
     }
 }

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.CobbleDollarsOffers;
 import fr.cobbledollars.commandshops.StackCountMath;
 import fr.cobbledollars.commandshops.audit.AuditLogService;
 import fr.cobbledollars.commandshops.feedback.BuyFailureReason;
@@ -21,8 +22,8 @@ import fr.harmex.cobbledollars.common.world.entity.ClientSideCobbleDollarsShopHo
 import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import fr.harmex.cobbledollars.common.world.item.trading.CobbleDollarsShopHolder;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Shop;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -109,8 +110,11 @@ public final class CommandShopSessions {
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
         Shop runtimeShop = runtimeData.shop();
-        PlayerExtensionKt.openBank(player, createSessionHolder(session.sessionUuid(), runtimeShop));
-        ShopSessionSyncService.syncClientBankConfig(player, runtimeShop, ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player));
+        BankDefinition.RuntimeBankData runtimeBankData = ShopRegistry.getBankDefinition(shop.id()).createRuntimeData(player);
+        CobbleDollarsShopHolder holder = createSessionHolder(session.sessionUuid(), runtimeShop);
+        holder.setBankRef(new CobbleDollarsShopHolder.BankRef.Inline(runtimeBankData.bank()));
+        PlayerExtensionKt.openBank(player, holder);
+        ShopSessionSyncService.syncClientBankConfig(player, runtimeShop, runtimeBankData);
         session.setLastSnapshot(runtimeData.sessionSnapshot());
         updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, Long.MAX_VALUE);
         return true;
@@ -172,7 +176,8 @@ public final class CommandShopSessions {
         }
 
         Offer expectedOffer = currentRuntimeData.getRuntimeOffer(packet.getCategoryIndex(), packet.getOfferIndex());
-        if (expectedOffer == null || !expectedOffer.equalsWithoutStock(packet.getOffer())) {
+        if (expectedOffer == null || packet.getIngredientIndex() != 0
+                || !CobbleDollarsOffers.equalsWithoutStock(expectedOffer, packet.getOffer())) {
             ShopSessionSyncService.sendFullSync(player, session, currentRuntimeData);
             ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData);
             AuditLogService.logBuyFailure(
@@ -235,7 +240,7 @@ public final class CommandShopSessions {
             return true;
         }
 
-        PurchaseExecutionPlan purchasePlan = buildPurchaseExecutionPlan(offerDefinition, expectedOffer, amount);
+        PurchaseExecutionPlan purchasePlan = buildPurchaseExecutionPlan(offerDefinition, amount);
         if (purchasePlan == null) {
             ShopSessionSyncService.resyncRejectedOfferState(player, session, currentRuntimeData, packet.getCategoryIndex(), packet.getOfferIndex());
             AuditLogService.logBuyFailure(player, shop, offerDefinition, BuyFailureReason.INVALID_AMOUNT, amount, currentStock, totalPrice);
@@ -275,12 +280,12 @@ public final class CommandShopSessions {
         int updatedStock = -1;
         if (offerDefinition.hasFiniteStock()) {
             updatedStock = Math.max(0, currentStock - amount);
-            expectedOffer.setStock(updatedStock);
         }
         try {
-            ShopSessionSyncService.refreshSessionShop(player, session, currentRuntimeData);
-            long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, currentRuntimeData, stockData, nowMillis);
-            ShopFeedbackService.onBuySuccess(player, expectedOffer.getItem(), amount, totalPrice, updatedStock);
+            ShopDefinition.RuntimeShopData updatedRuntimeData = shop.createRuntimeData(stockData, player, nowMillis);
+            ShopSessionSyncService.refreshSessionShop(player, session, updatedRuntimeData);
+            long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, updatedRuntimeData, stockData, nowMillis);
+            ShopFeedbackService.onBuySuccess(player, offerDefinition.template(), amount, totalPrice, updatedStock);
             AuditLogService.logBuySuccess(
                     player,
                     shop,
@@ -291,7 +296,7 @@ public final class CommandShopSessions {
                     offerDefinition.hasFiniteStock() ? currentStock : null,
                     updatedStock >= 0 ? updatedStock : null
             );
-            updateSessionRefreshState(server, player, session, shop, currentRuntimeData, nowMillis, nextRestockAtMillis);
+            updateSessionRefreshState(server, player, session, shop, updatedRuntimeData, nowMillis, nextRestockAtMillis);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to finalize custom shop purchase sync for {}", player.getGameProfile().getName(), exception);
         }
@@ -631,9 +636,9 @@ public final class CommandShopSessions {
         return isViewingSessionBank(player, session) && ShopRegistry.getBankDefinition(session.shopId()).hasDimensionConditions();
     }
 
-    private static PurchaseExecutionPlan buildPurchaseExecutionPlan(ResolvedShopOffer offerDefinition, Offer runtimeOffer, int amount) {
+    private static PurchaseExecutionPlan buildPurchaseExecutionPlan(ResolvedShopOffer offerDefinition, int amount) {
         ArrayList<DeliveryRequest> deliveries = new ArrayList<>();
-        deliveries.add(new DeliveryRequest(runtimeOffer.getItem(), StackCountMath.multiplyToLong(runtimeOffer.getItem().getCount(), amount)));
+        deliveries.add(new DeliveryRequest(offerDefinition.template(), StackCountMath.multiplyToLong(offerDefinition.template().getCount(), amount)));
 
         ArrayList<ItemStack> bonusItems = new ArrayList<>();
         for (PurchaseBonusDefinition purchaseBonus : offerDefinition.source().purchaseBonuses()) {
@@ -673,7 +678,7 @@ public final class CommandShopSessions {
     private static CobbleDollarsShopHolder createSessionHolder(UUID merchantUuid, Shop runtimeShop) {
         ClientSideCobbleDollarsShopHolder holder = new ClientSideCobbleDollarsShopHolder();
         holder.setMerchantUUID(merchantUuid);
-        holder.setShop(runtimeShop);
+        holder.setShopRef(new CobbleDollarsShopHolder.ShopRef.Inline(runtimeShop));
         holder.setTradingPlayers(new HashSet<>());
         return holder;
     }

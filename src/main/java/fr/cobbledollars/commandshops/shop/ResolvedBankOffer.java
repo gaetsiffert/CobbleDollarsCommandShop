@@ -2,7 +2,7 @@ package fr.cobbledollars.commandshops.shop;
 
 import java.math.BigInteger;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.world.item.ItemStack;
 
 public record ResolvedBankOffer(BankOfferDefinition source, ItemStack itemStack, ItemMatchAtom.Kind matchKind) {

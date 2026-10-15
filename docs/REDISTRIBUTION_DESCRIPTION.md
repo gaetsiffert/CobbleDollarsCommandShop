@@ -112,7 +112,10 @@ If you find a bug, please report it in the comments or open an issue. You can al
 If you want to use or modify this code, please check the license first.
 
 tested with :
-- CobbleDollars-neoforge-2.0.0+Beta-5.1+1.21.1
-- Cobblemon-neoforge-1.7.3+1.21.1
+- CobbleDollars-neoforge-2.0.0+Beta-6.1+1.21.1
+- Cobblemon-neoforge-1.8.2+1.21.1
 - CustomNPCs-Unofficial-NeoForge-1.21.1.20251230
-- easy_npc-neoforge-1.21.1-6.14.0
+- easy_npc-neoforge-1.21.1-7.15.0
+- easy_npc_config_ui-neoforge-1.21.1-7.15.0
+- easy_model_entities-neoforge-1.21.1-2.5.0
+- Kotlin for Forge 5.12.0

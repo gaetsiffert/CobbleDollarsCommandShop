@@ -51,6 +51,7 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
             int categoryIndex,
             int offerIndex,
             int stock,
+            int bundleCount,
             long nextRestockAtMillis,
             int nextRestockAmount,
             String restockZoneId,
@@ -65,6 +66,7 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
                     ByteBufCodecs.VAR_INT.decode(buffer),
                     ByteBufCodecs.VAR_INT.decode(buffer),
                     ByteBufCodecs.VAR_INT.decode(buffer),
+                    ByteBufCodecs.VAR_INT.decode(buffer),
                     ByteBufCodecs.VAR_LONG.decode(buffer),
                     ByteBufCodecs.VAR_INT.decode(buffer),
                     decodeZoneId(buffer),
@@ -76,6 +78,7 @@ public record ShopUiStatePayload(UUID sessionUuid, List<OfferState> offers) impl
             ByteBufCodecs.VAR_INT.encode(buffer, categoryIndex);
             ByteBufCodecs.VAR_INT.encode(buffer, offerIndex);
             ByteBufCodecs.VAR_INT.encode(buffer, stock);
+            ByteBufCodecs.VAR_INT.encode(buffer, bundleCount);
             ByteBufCodecs.VAR_LONG.encode(buffer, nextRestockAtMillis);
             ByteBufCodecs.VAR_INT.encode(buffer, nextRestockAmount);
             ByteBufCodecs.STRING_UTF8.encode(buffer, restockZoneId == null ? "" : restockZoneId);

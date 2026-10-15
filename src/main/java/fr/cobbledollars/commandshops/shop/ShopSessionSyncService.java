@@ -12,13 +12,15 @@ import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.cobbledollars.commandshops.network.ClientUiSync;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
 import fr.harmex.cobbledollars.common.network.packets.s2c.SyncShopConfigPacket;
+import fr.harmex.cobbledollars.common.network.packets.s2c.SyncBankPacket;
 import fr.harmex.cobbledollars.common.network.packets.s2c.SyncShopPacket;
 import fr.harmex.cobbledollars.common.network.packets.s2c.UpdateStockPacket;
 import fr.harmex.cobbledollars.common.world.entity.ClientSideCobbleDollarsShopHolder;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
+import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.item.trading.CobbleDollarsShopHolder;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Shop;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -35,11 +37,11 @@ final class ShopSessionSyncService {
         ShopMenu shopMenu = requireShopMenu(player);
         CobbleDollarsShopHolder holder = ensureHolder(shopMenu);
         holder.setMerchantUUID(session.sessionUuid());
-        holder.setShop(runtimeShop);
+        holder.setShopRef(new CobbleDollarsShopHolder.ShopRef.Inline(runtimeShop));
         shopMenu.setCobbleMerchant(holder);
         shopMenu.setHasMerchant(false);
-        shopMenu.setShop(runtimeShop);
-        new SyncShopPacket(shopMenu.containerId, runtimeShop, false, session.sessionUuid(), false).sendToPlayer(player);
+        shopMenu.setShop(holder.getShopRef());
+        new SyncShopPacket(shopMenu.containerId, holder.getShopRef(), false, session.sessionUuid(), false).sendToPlayer(player);
         session.setLastSnapshot(runtimeData.sessionSnapshot());
     }
 
@@ -51,10 +53,10 @@ final class ShopSessionSyncService {
         ShopSessionSnapshot currentSnapshot = runtimeData.sessionSnapshot();
 
         holder.setMerchantUUID(session.sessionUuid());
-        holder.setShop(runtimeShop);
+        holder.setShopRef(new CobbleDollarsShopHolder.ShopRef.Inline(runtimeShop));
         shopMenu.setCobbleMerchant(holder);
         shopMenu.setHasMerchant(false);
-        shopMenu.setShop(runtimeShop);
+        shopMenu.setShop(holder.getShopRef());
 
         if (previousSnapshot == null || !previousSnapshot.hasSameLayout(currentSnapshot)) {
             sendFullSync(player, session, runtimeData);
@@ -91,7 +93,15 @@ final class ShopSessionSyncService {
 
     static void syncClientBankConfig(ServerPlayer player, Shop runtimeShop, BankDefinition.RuntimeBankData runtimeBankData) {
         try {
-            new SyncShopConfigPacket(runtimeShop, runtimeBankData.bank()).sendToPlayer(player);
+            CobbleDollarsShopHolder.ShopRef shopRef = new CobbleDollarsShopHolder.ShopRef.Inline(runtimeShop);
+            CobbleDollarsShopHolder.BankRef bankRef = new CobbleDollarsShopHolder.BankRef.Inline(runtimeBankData.bank());
+            new SyncShopConfigPacket(shopRef, bankRef).sendToPlayer(player);
+            if (player.containerMenu instanceof BankMenu bankMenu) {
+                bankMenu.getCobbleMerchant().setShopRef(shopRef);
+                bankMenu.getCobbleMerchant().setBankRef(bankRef);
+                bankMenu.setHasMerchant(false);
+                new SyncBankPacket(bankMenu.containerId, bankRef, false, bankMenu.getCobbleMerchant().getMerchantUUID()).sendToPlayer(player);
+            }
             ClientUiSync.sendBankUiState(player, runtimeBankData);
         } catch (Exception exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to sync custom bank config for {}", player.getGameProfile().getName(), exception);
@@ -138,11 +148,12 @@ final class ShopSessionSyncService {
             for (int visibleOfferIndex = 0; visibleOfferIndex < category.offers().size(); visibleOfferIndex++) {
                 ShopDefinition.RuntimeShopOfferEntry entry = category.offers().get(visibleOfferIndex);
                 Offer runtimeOffer = entry.runtimeOffer();
+                int stock = runtimeOffer.getStock();
                 PlayerShopStockData.RestockPreview preview = entry.restockPreview();
                 if (stockData != null) {
                     PlayerShopStockData.OfferRuntimeState offerState =
                             stockData.resolveOfferRuntimeState(player.getUUID(), shop, entry.resolvedOffer(), nowMillis);
-                    runtimeOffer.setStock(offerState.stock());
+                    stock = offerState.stock();
                     preview = offerState.restockPreview();
                 }
                 if (preview.hasNextRestock()) {
@@ -151,7 +162,8 @@ final class ShopSessionSyncService {
                 offers.add(new ShopUiStatePayload.OfferState(
                         visibleCategoryIndex,
                         visibleOfferIndex,
-                        runtimeOffer.getStock(),
+                        stock,
+                        entry.resolvedOffer().itemStack().getCount(),
                         preview.hasNextRestock() ? preview.nextRestockAtMillis() : -1L,
                         preview.nextRestockAmount(),
                         resolveRestockZoneId(preview),
@@ -172,7 +184,7 @@ final class ShopSessionSyncService {
     }
 
     private static void sendStockUpdate(ServerPlayer player, CommandShopSessionState session, int categoryIndex, int offerIndex, int stock) {
-        new UpdateStockPacket(categoryIndex, offerIndex, stock, session.sessionUuid()).sendToPlayer(player);
+        new UpdateStockPacket(categoryIndex, offerIndex, 0, stock, session.sessionUuid()).sendToPlayer(player);
     }
 
     private static ShopMenu requireShopMenu(ServerPlayer player) {

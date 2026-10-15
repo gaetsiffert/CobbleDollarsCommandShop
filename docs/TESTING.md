@@ -93,6 +93,20 @@ Run the full standard test pass:
 ./gradlew.bat test runGameTestServer
 ```
 
+### NPC compatibility checks
+
+The NPC command-source GameTests run when Easy NPC or CustomNPCs is installed in
+the development runtime; they do not add a required NPC dependency to the addon.
+CustomNPCs 1.21.1.20251230 expects an ordinary dedicated server and cannot initialize
+its world directory in the special GameTestServer launcher.
+
+For that combination, use an isolated development server directory and set both
+`-Dneoforge.enableGameTest=true` and `-Dcommandshops.dedicatedCompatibilityTests=true`
+on the game JVM. `DedicatedCompatibilityTestRunner` runs the registered tests and
+stops that server afterwards. Check `COMPATIBILITY_RESULT` for completion and zero
+failures. These helpers are in the GameTest source set and are excluded from the
+distributed addon jar.
+
 ## Performance harness
 
 The performance harness is intentionally separate from the standard suites. It exists to provide reproducible before/after measurements, not hard CI gates.

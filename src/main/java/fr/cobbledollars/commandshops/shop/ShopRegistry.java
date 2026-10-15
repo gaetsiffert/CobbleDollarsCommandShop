@@ -11,7 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
+import fr.harmex.cobbledollars.common.api.bank.Bank;
 
 public final class ShopRegistry {
     private static volatile RegistryState state = RegistryState.empty();

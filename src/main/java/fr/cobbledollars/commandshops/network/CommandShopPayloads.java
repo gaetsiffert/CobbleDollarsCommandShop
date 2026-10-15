@@ -16,7 +16,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 @EventBusSubscriber(modid = CobbleDollarsCommandShopsMod.MODID)
 public final class CommandShopPayloads {
-    private static final String NETWORK_VERSION = "2";
+    private static final String NETWORK_VERSION = "3";
     private static final String CLIENT_UI_STATE_CLASS = "fr.cobbledollars.commandshops.client.ClientUiState";
     private static final Map<String, Method> CLIENT_HANDLER_METHODS = new HashMap<>();
 

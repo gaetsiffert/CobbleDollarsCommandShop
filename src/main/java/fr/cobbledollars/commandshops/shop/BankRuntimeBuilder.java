@@ -1,15 +1,16 @@
 package fr.cobbledollars.commandshops.shop;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.cobbledollars.commandshops.CobbleDollarsOffers;
+import fr.harmex.cobbledollars.common.api.bank.Bank;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -31,7 +32,6 @@ final class BankRuntimeBuilder {
 
         HashMap<BankLookupKey, BankOfferCandidate> exactCandidates = new HashMap<>();
         HashMap<Item, BankOfferCandidate> genericCandidates = new HashMap<>();
-        LinkedHashMap<BankLookupKey, BankOfferCandidate> displayWinners = new LinkedHashMap<>();
         int sourceOrder = 0;
         for (BankCategoryDefinition category : categories) {
             if (!category.conditions().test(context)) {
@@ -43,7 +43,7 @@ final class BankRuntimeBuilder {
                 }
                 for (ResolvedBankOffer resolvedOffer : offer.createResolvedOffers()) {
                     Offer runtimeOffer = resolvedOffer.createRuntimeOffer();
-                    BankLookupKey displayKey = BankLookupKey.from(runtimeOffer.getItem());
+                    BankLookupKey displayKey = BankLookupKey.from(CobbleDollarsOffers.getItem(runtimeOffer));
                     BankOfferCandidate candidate = new BankOfferCandidate(
                             sourceOrder,
                             displayKey,
@@ -53,20 +53,22 @@ final class BankRuntimeBuilder {
                     if (candidate.kind() == ItemMatchAtom.Kind.STACK) {
                         exactCandidates.merge(candidate.displayKey(), candidate, BankRuntimeBuilder::selectBetterCandidate);
                     } else {
-                        genericCandidates.merge(candidate.offer().getItem().getItem(), candidate, BankRuntimeBuilder::selectBetterCandidate);
+                        genericCandidates.merge(CobbleDollarsOffers.getItem(candidate.offer()).getItem(), candidate, BankRuntimeBuilder::selectBetterCandidate);
                     }
-                    displayWinners.merge(candidate.displayKey(), candidate, BankRuntimeBuilder::selectBetterCandidate);
                 }
                 sourceOrder++;
             }
         }
 
-        ArrayList<Offer> runtimeOffers = new ArrayList<>(displayWinners.size());
-        IdentityHashMap<Offer, Boolean> includedOffers = new IdentityHashMap<>();
-        for (BankOfferCandidate candidate : displayWinners.values()) {
-            if (includedOffers.put(candidate.offer(), Boolean.TRUE) == null) {
-                runtimeOffers.add(candidate.offer());
-            }
+        // Native Beta 6 banks evaluate entries in order. Exact stack rules must
+        // precede generic rules and compare all components, including absent ones.
+        LinkedHashMap<Offer, List<DataComponentType<?>>> runtimeOffers = new LinkedHashMap<>();
+        List<DataComponentType<?>> exactComponents = BuiltInRegistries.DATA_COMPONENT_TYPE.stream().toList();
+        for (BankOfferCandidate candidate : exactCandidates.values()) {
+            runtimeOffers.put(candidate.offer(), exactComponents);
+        }
+        for (BankOfferCandidate candidate : genericCandidates.values()) {
+            runtimeOffers.put(candidate.offer(), List.of());
         }
 
         HashMap<BankLookupKey, Offer> exactOffersByKey = new HashMap<>(exactCandidates.size());
@@ -92,7 +94,7 @@ final class BankRuntimeBuilder {
         Map<Item, Map<DataComponentMap, Offer>> exactOffers = Map.copyOf(immutableExactOffersByItem);
         Map<Item, Offer> genericOffers = Map.copyOf(genericOffersByItem);
         return new BankDefinition.RuntimeBankData(
-                new Bank(runtimeOffers),
+                runtimeOffers.isEmpty() ? BankDefinition.emptyBank() : new Bank(runtimeOffers),
                 exactOffers,
                 genericOffers,
                 List.copyOf(exactOffersByKey.values()),

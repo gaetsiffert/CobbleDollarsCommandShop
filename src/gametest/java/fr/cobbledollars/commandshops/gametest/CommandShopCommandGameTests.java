@@ -8,8 +8,13 @@ import com.mojang.brigadier.tree.CommandNode;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import fr.cobbledollars.commandshops.shop.ShopVisibilityData;
+import fr.cobbledollars.commandshops.shop.CommandShopSessions;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.world.level.GameType;
+import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
+import net.neoforged.fml.ModList;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.testframework.annotation.ForEachTest;
 import net.neoforged.testframework.annotation.TestHolder;
@@ -19,6 +24,55 @@ import net.neoforged.testframework.gametest.ExtendedGameTestHelper;
 @ForEachTest(idPrefix = "commands.", groups = "commands", side = Dist.DEDICATED_SERVER)
 public final class CommandShopCommandGameTests {
     private CommandShopCommandGameTests() {
+    }
+
+    @TestHolder(value = "easy_npc_command_source_opens_shop", title = "Easy NPC command sources open shops")
+    @GameTest(batch = "commands.easy_npc", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void easy_npc_command_source_opens_shop(ExtendedGameTestHelper helper) {
+        verifyNpcCommandSource(helper, "easy_npc");
+    }
+
+    @TestHolder(value = "customnpcs_command_source_opens_shop", title = "CustomNPCs command sources open shops")
+    @GameTest(batch = "commands.customnpcs", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void customnpcs_command_source_opens_shop(ExtendedGameTestHelper helper) {
+        verifyNpcCommandSource(helper, "customnpcs");
+    }
+
+    private static void verifyNpcCommandSource(ExtendedGameTestHelper helper, String modId) {
+        if (!ModList.get().isLoaded(modId)) {
+            helper.succeed();
+            return;
+        }
+        var typeId = BuiltInRegistries.ENTITY_TYPE.keySet().stream()
+                .filter(id -> id.getNamespace().equals(modId))
+                .sorted()
+                .findFirst().orElseThrow();
+        var npc = BuiltInRegistries.ENTITY_TYPE.get(typeId).create(helper.getLevel());
+        helper.assertTrue(npc != null, "Expected an NPC entity from " + modId);
+        var player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        npc.moveTo(player.position());
+        helper.getLevel().addFreshEntity(npc);
+        try {
+            int result = helper.getLevel().getServer().getCommands().getDispatcher().execute(
+                    "cdshops open general_store " + player.getGameProfile().getName(),
+                    npc.createCommandSourceStack().withPermission(2).withSuppressedOutput());
+            helper.assertValueEqual(1, result, "The NPC command should queue a shop for the target player.");
+        } catch (CommandSyntaxException exception) {
+            npc.discard();
+            helper.fail("NPC command failed: " + exception.getMessage());
+            return;
+        }
+        helper.runAtTickTime(6, () -> {
+            try {
+                helper.assertTrue(player.containerMenu instanceof ShopMenu, "The NPC command should open the target player's shop.");
+                helper.succeed();
+            } finally {
+                npc.discard();
+                CommandShopSessions.cleanupPlayer(player.getUUID());
+            }
+        });
     }
 
     @TestHolder(

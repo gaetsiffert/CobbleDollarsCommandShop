@@ -6,8 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Shop;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class ShopDefinition {

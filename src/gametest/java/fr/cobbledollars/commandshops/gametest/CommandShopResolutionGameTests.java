@@ -17,6 +17,7 @@ import fr.cobbledollars.commandshops.shop.ShopCategoryDefinition;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopOfferDefinition;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
@@ -139,7 +140,25 @@ public final class CommandShopResolutionGameTests {
         var resolved = runtimeData.get(new ItemStack(Items.DIAMOND_SWORD));
         helper.assertTrue(resolved != null, "Expected a runtime bank offer for the diamond sword.");
         helper.assertTrue(BigInteger.valueOf(90L).equals(resolved.getPrice()), "The exact stack override should win over the generic item offer.");
+        helper.assertTrue(BigInteger.valueOf(90L).equals(runtimeData.bank().getPrice(new ItemStack(Items.DIAMOND_SWORD))),
+                "The native bank should use the same exact-stack price.");
+        ItemStack damagedSword = new ItemStack(Items.DIAMOND_SWORD);
+        damagedSword.set(DataComponents.DAMAGE, 1);
+        helper.assertTrue(BigInteger.valueOf(50L).equals(runtimeData.bank().getPrice(damagedSword)),
+                "Additional components must select the generic fallback instead of the exact stack rule.");
 
+        helper.succeed();
+    }
+
+    @TestHolder(value = "empty_bank_does_not_fall_back_to_global_bank", title = "Empty custom banks stay empty")
+    @GameTest(batch = "resolution.empty_bank", timeoutTicks = 80, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void empty_bank_does_not_fall_back_to_global_bank(ExtendedGameTestHelper helper) {
+        var bank = BankDefinition.emptyBank();
+        helper.assertTrue(!bank.getOffers().isEmpty(), "An empty custom bank must avoid the native global-bank fallback.");
+        helper.assertValueEqual(0, bank.countOffers(), "The bank must not advertise any sellable items.");
+        helper.assertTrue(!bank.contains(new ItemStack(Items.EMERALD)), "An empty custom bank must reject emeralds.");
+        helper.assertTrue(bank.getOffer(new ItemStack(Items.DIAMOND)) == null, "An empty custom bank must not pay for diamonds.");
         helper.succeed();
     }
 }

@@ -5,9 +5,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Category;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Shop;
+import fr.harmex.cobbledollars.common.api.shop.Category;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
+import fr.harmex.cobbledollars.common.api.shop.Shop;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
@@ -29,13 +29,13 @@ final class ShopRuntimeBuilder {
             CreateRuntimeMetrics metrics
     ) {
         long phaseStartNanos = metrics == null ? 0L : System.nanoTime();
-        Shop runtimeShop = new Shop();
+        ArrayList<Category> cobbleCategories = new ArrayList<>(preparedCategories.size());
         ConditionSet.ConditionContext context = ConditionSet.ConditionContext.capture(player);
         if (metrics != null) {
             metrics.contextNanos += System.nanoTime() - phaseStartNanos;
         }
         if (!shopConditions.test(context)) {
-            return new ShopDefinition.RuntimeShopData(runtimeShop, List.of(), 0, Long.MAX_VALUE, new ShopSessionSnapshot(List.of()));
+            return new ShopDefinition.RuntimeShopData(new Shop(List.of()), List.of(), 0, Long.MAX_VALUE, new ShopSessionSnapshot(List.of()));
         }
 
         phaseStartNanos = metrics == null ? 0L : System.nanoTime();
@@ -103,7 +103,7 @@ final class ShopRuntimeBuilder {
                 }
             }
             if (!cobbleOffers.isEmpty()) {
-                runtimeShop.add(new Category(category.name(), cobbleOffers));
+                cobbleCategories.add(new Category(category.name(), cobbleOffers));
                 runtimeCategories.add(new ShopDefinition.RuntimeCategory(category.name(), List.copyOf(resolvedOffers)));
                 snapshotCategories.add(new ShopSessionSnapshot.CategorySnapshot(category.name(), List.copyOf(snapshotOffers)));
                 visibleOfferCount += resolvedOffers.size();
@@ -114,7 +114,7 @@ final class ShopRuntimeBuilder {
         }
         List<ShopDefinition.RuntimeCategory> immutableRuntimeCategories = List.copyOf(runtimeCategories);
         return new ShopDefinition.RuntimeShopData(
-                runtimeShop,
+                new Shop(cobbleCategories),
                 immutableRuntimeCategories,
                 visibleOfferCount,
                 nextVisibleRestockAtMillis,

@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.CobbleDollarsOffers;
 import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
@@ -23,8 +24,8 @@ import fr.harmex.cobbledollars.common.client.gui.screen.widget.CategoryListWidge
 import fr.harmex.cobbledollars.common.client.gui.screen.widget.OfferListWidget;
 import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Bank;
-import fr.harmex.cobbledollars.common.world.item.trading.shop.Offer;
+import fr.harmex.cobbledollars.common.api.bank.Bank;
+import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -87,6 +88,8 @@ public final class ClientUiState {
 
     private static SessionState currentShopState;
     private static ClientBankState currentBankState;
+    private static Bank cachedNativeBank;
+    private static List<Offer> cachedNativeBankOffers = List.of();
     private static OverlayMessage overlayMessage;
     private static BankScreen trackedBankScreen;
     private static boolean acceptedItemsModalOpen;
@@ -135,6 +138,8 @@ public final class ClientUiState {
     public static void clear() {
         currentShopState = null;
         currentBankState = null;
+        cachedNativeBank = null;
+        cachedNativeBankOffers = List.of();
         overlayMessage = null;
         trackedBankScreen = null;
         acceptedItemsModalOpen = false;
@@ -148,7 +153,7 @@ public final class ClientUiState {
         invalidateAcceptedItemsCache();
     }
 
-    public static boolean renderCustomShopOfferTooltip(Offer offer, Minecraft minecraft, GuiGraphics guiGraphics, int mouseX, int mouseY) {
+    public static boolean renderCustomShopOfferTooltip(Offer offer, int ingredientIndex, Minecraft minecraft, GuiGraphics guiGraphics, int mouseX, int mouseY) {
         if (!(minecraft.screen instanceof ShopScreen shopScreen) || minecraft.font == null) {
             return false;
         }
@@ -156,13 +161,17 @@ public final class ClientUiState {
         OfferContext context = resolveOfferContext(shopScreen, offer);
         ShopUiStatePayload.OfferState offerState = context != null ? context.offerState() : null;
         int stock = offerState != null ? offerState.stock() : offer.getStock();
-
-        ArrayList<Component> lines = new ArrayList<>(Screen.getTooltipFromItem(minecraft, offer.getItem()));
-        if (lines.isEmpty()) {
-            lines.add(offer.getItem().getHoverName());
+        ItemStack stack = CobbleDollarsOffers.getItem(offer, ingredientIndex);
+        if (offerState != null) {
+            stack.setCount(offerState.bundleCount());
         }
 
-        lines.set(0, buildOfferHeadline(offer, stock));
+        ArrayList<Component> lines = new ArrayList<>(Screen.getTooltipFromItem(minecraft, stack));
+        if (lines.isEmpty()) {
+            lines.add(stack.getHoverName());
+        }
+
+        lines.set(0, buildOfferHeadline(offer, stack, stock));
         lines.add(Component.empty());
         lines.add(labelValue("cobbledollarscommandshops.ui.label.unit_price", ClientUiFormatter.formatMoney(offer.getPrice()))
                 .withStyle(style -> style.withColor(TEXT_GOLD)));
@@ -187,8 +196,8 @@ public final class ClientUiState {
             ));
         }
 
-        Optional<TooltipComponent> tooltipImage = offer.getItem().getTooltipImage();
-        guiGraphics.renderTooltip(minecraft.font, lines, tooltipImage, offer.getItem(), mouseX, mouseY);
+        Optional<TooltipComponent> tooltipImage = stack.getTooltipImage();
+        guiGraphics.renderTooltip(minecraft.font, lines, tooltipImage, stack, mouseX, mouseY);
         return true;
     }
 
@@ -510,7 +519,7 @@ public final class ClientUiState {
             }
 
             Offer entryOffer = entry.getOffer();
-            if (entryOffer != targetOffer && !entryOffer.equalsWithoutStock(targetOffer)) {
+            if (entryOffer != targetOffer && !CobbleDollarsOffers.equalsWithoutStock(entryOffer, targetOffer)) {
                 continue;
             }
 
@@ -566,7 +575,12 @@ public final class ClientUiState {
     }
 
     private static MutableComponent buildOfferHeadline(Offer offer, int stock) {
-        MutableComponent headline = colored(offer.getItem().getHoverName().copy(), 0xFF55FFFF)
+        return buildOfferHeadline(offer, CobbleDollarsOffers.getItem(offer), stock);
+    }
+
+    private static MutableComponent buildOfferHeadline(Offer offer, ItemStack stack, int stock) {
+        MutableComponent headline = colored(stack.getHoverName().copy(), 0xFF55FFFF)
+                .append(stack.getCount() > 1 ? Component.literal(" ×" + stack.getCount()) : Component.empty())
                 .append(Component.literal(" $ " + offer.getPrice()).withStyle(style -> style.withColor(0xFF55FF55)));
         if (stock == 0) {
             headline.append(Component.literal(" ")).append(
@@ -663,7 +677,7 @@ public final class ClientUiState {
             boolean hovered = cellRect.contains(mouseX, mouseY);
             guiGraphics.fill(cellRect.x(), cellRect.y(), cellRect.right(), cellRect.bottom(), hovered ? 0xFF26442C : 0xFF1B261D);
             drawThinBorder(guiGraphics, cellRect, hovered ? 0xFF73C77A : 0xFF46724B);
-            guiGraphics.renderItem(entries.get(index).offer().getItem(), cellRect.x() + 4, cellRect.y() + 3);
+            guiGraphics.renderItem(CobbleDollarsOffers.getItem(entries.get(index).offer()), cellRect.x() + 4, cellRect.y() + 3);
             guiGraphics.drawString(font, trimToWidth(font, entries.get(index).name(), 84), cellRect.x() + 24, cellRect.y() + 3, TEXT_PRIMARY, false);
             guiGraphics.drawString(font, ClientUiFormatter.formatCompactMoney(entries.get(index).offer().getPrice()), cellRect.x() + 24, cellRect.y() + 12, TEXT_GOLD, false);
             if (hovered) {
@@ -698,7 +712,7 @@ public final class ClientUiState {
         }
 
         if (hoveredOffer != null) {
-            guiGraphics.renderTooltip(font, buildAcceptedOfferTooltip(hoveredOffer), hoveredOffer.getItem().getTooltipImage(), hoveredOffer.getItem(), mouseX, mouseY);
+            guiGraphics.renderTooltip(font, buildAcceptedOfferTooltip(hoveredOffer), CobbleDollarsOffers.getItem(hoveredOffer).getTooltipImage(), CobbleDollarsOffers.getItem(hoveredOffer), mouseX, mouseY);
         }
         guiGraphics.flush();
         guiGraphics.pose().popPose();
@@ -707,7 +721,7 @@ public final class ClientUiState {
     private static List<Component> buildAcceptedOfferTooltip(Offer offer) {
         suppressBankTooltipAugment = true;
         try {
-            ArrayList<Component> lines = new ArrayList<>(Screen.getTooltipFromItem(Minecraft.getInstance(), offer.getItem()));
+            ArrayList<Component> lines = new ArrayList<>(Screen.getTooltipFromItem(Minecraft.getInstance(), CobbleDollarsOffers.getItem(offer)));
             lines.add(Component.empty());
             lines.add(labelValue("cobbledollarscommandshops.ui.label.unit_price", ClientUiFormatter.formatMoney(offer.getPrice()))
                     .withStyle(style -> style.withColor(TEXT_GOLD)));
@@ -856,7 +870,9 @@ public final class ClientUiState {
     }
 
     private static Bank getClientBank() {
-        Bank bank = ClientShopConfig.INSTANCE.getBank();
+        Minecraft minecraft = Minecraft.getInstance();
+        Bank bank = minecraft.player != null && minecraft.player.containerMenu instanceof BankMenu bankMenu
+                ? bankMenu.getBankRef().getBank() : ClientShopConfig.INSTANCE.getBankRef().getBank();
         return bank == null ? EMPTY_BANK : bank;
     }
 
@@ -865,7 +881,18 @@ public final class ClientUiState {
         if (bankState != null) {
             return bankState.offers();
         }
-        return getClientBank();
+        Bank bank = getClientBank();
+        if (bank != cachedNativeBank) {
+            ArrayList<Offer> offers = new ArrayList<>();
+            for (Offer offer : bank.getOffers().keySet()) {
+                for (ItemStack stack : offer.getItems()) {
+                    offers.add(new Offer(stack, offer.getPrice(), -1));
+                }
+            }
+            cachedNativeBank = bank;
+            cachedNativeBankOffers = List.copyOf(offers);
+        }
+        return cachedNativeBankOffers;
     }
 
     private static Offer getClientBankOffer(ItemStack stack) {
@@ -873,7 +900,8 @@ public final class ClientUiState {
         if (bankState != null) {
             return bankState.get(stack);
         }
-        return getClientBank().get(stack);
+        var entry = getClientBank().getOffer(stack);
+        return entry == null ? null : entry.getKey();
     }
 
     private static void invalidateAcceptedItemsCache() {
@@ -893,9 +921,9 @@ public final class ClientUiState {
 
         ArrayList<AcceptedItemEntry> baseEntries = new ArrayList<>(offers.size());
         for (Offer offer : offers) {
-            String name = offer.getItem().getHoverName().getString();
+            String name = CobbleDollarsOffers.getItem(offer).getHoverName().getString();
             String normalizedName = name.toLowerCase(Locale.ROOT);
-            ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(offer.getItem().getItem());
+            ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(CobbleDollarsOffers.getItem(offer).getItem());
             baseEntries.add(new AcceptedItemEntry(
                     offer,
                     name,
@@ -1066,11 +1094,11 @@ public final class ClientUiState {
             LinkedHashMap<BankOfferKey, Offer> visibleOffers = new LinkedHashMap<>(exactOffers.size() + genericOffers.size());
             for (Map<DataComponentMap, Offer> offersByComponents : exactOffers.values()) {
                 for (Offer offer : offersByComponents.values()) {
-                    visibleOffers.put(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+                    visibleOffers.put(new BankOfferKey(CobbleDollarsOffers.getItem(offer).getItem(), CobbleDollarsOffers.getItem(offer).getComponents()), offer);
                 }
             }
             for (Offer offer : genericOffers.values()) {
-                visibleOffers.putIfAbsent(new BankOfferKey(offer.getItem().getItem(), offer.getItem().getComponents()), offer);
+                visibleOffers.putIfAbsent(new BankOfferKey(CobbleDollarsOffers.getItem(offer).getItem(), CobbleDollarsOffers.getItem(offer).getComponents()), offer);
             }
 
             HashMap<Item, Map<DataComponentMap, Offer>> immutableExactOffers = new HashMap<>(exactOffers.size());
@@ -1093,8 +1121,8 @@ public final class ClientUiState {
 
         private static void putExactOffer(Map<Item, Map<DataComponentMap, Offer>> exactOffers, Offer offer) {
             exactOffers
-                    .computeIfAbsent(offer.getItem().getItem(), ignored -> new HashMap<>())
-                    .put(offer.getItem().getComponents(), offer);
+                    .computeIfAbsent(CobbleDollarsOffers.getItem(offer).getItem(), ignored -> new HashMap<>())
+                    .put(CobbleDollarsOffers.getItem(offer).getComponents(), offer);
         }
     }
 
