@@ -36,6 +36,7 @@ Public commands:
 
 Admin commands (`permission level 2`):
 
+- `/cdshops admin` (requires this addon on the administrator's client)
 - `/cdshops open <shop> <targets>`
 - `/cdshops reload`
 - `/cdshops restock <shop> all <players>`
@@ -84,6 +85,26 @@ The detailed format reference is available in the repository at:
 The same guide is also generated at runtime in:
 
 `config/cobbledollarscommandshops/CONFIG_GUIDE.md`
+
+The in-game administrator editor opens with `/cdshops admin`. It uses the same
+form components, controls, palette, dropdowns and item picker as the Cobblemon
+Expeditions administrator interface. It exposes every supported setting in
+shops, global/local banks, feedback and audit, including optional settings that
+are absent from the files. Nested lists support adding, editing, duplicating,
+reordering and removing entries; shops and local banks can also be created or
+deleted. Legacy bank formats are editable and can be converted to expose bank
+conditions and categories.
+
+Edits remain drafts until **Save**. Saving validates the complete configuration
+on the server, checks for changes made since the editor loaded, writes the files
+and reloads the active settings and shop sessions. Validation failures preserve
+the draft. **Reload** reads the current server files and asks before discarding
+unsaved changes. Permission level 2 is checked for all administrative transfers.
+Other players can continue using the mod without installing its optional client
+layer. The interface is available in English and French.
+
+Component provenance and client verification are documented in
+[`docs/ADMIN_UI_COMPONENTS.md`](docs/ADMIN_UI_COMPONENTS.md).
 
 Audit logs are written to:
 

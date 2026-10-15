@@ -74,13 +74,22 @@ public final class ShopFiles {
         String normalizedShopId = normalizeId(shopId, "shop id");
         try (Reader reader = Files.newBufferedReader(shopFile)) {
             JsonElement root = JsonParser.parseReader(reader);
-            if (root == null || root.isJsonNull()) {
-                throw new IOException("Shop file '" + shopFile + "' is empty.");
-            }
-            if (!root.isJsonObject()) {
-                throw new IOException("Shop file '" + shopFile + "' must be a JSON object.");
-            }
-            return parseModernShop(normalizedShopId, shopFile, root.getAsJsonObject(), provider);
+            return parseShopJson(normalizedShopId, shopFile, root, provider);
+        } catch (RuntimeException exception) {
+            throw new IOException("Shop file '" + shopFile + "' could not be parsed.", exception);
+        }
+    }
+
+    /** Parses an in-memory edit with the same validation as a file load. */
+    public static ShopDefinition parseShopJson(String shopId, Path shopFile, JsonElement root, HolderLookup.Provider provider) throws IOException {
+        if (root == null || root.isJsonNull()) {
+            throw new IOException("Shop file '" + shopFile + "' is empty.");
+        }
+        if (!root.isJsonObject()) {
+            throw new IOException("Shop file '" + shopFile + "' must be a JSON object.");
+        }
+        try {
+            return parseModernShop(normalizeId(shopId, "shop id"), shopFile, root.getAsJsonObject(), provider);
         } catch (RuntimeException exception) {
             throw new IOException("Shop file '" + shopFile + "' could not be parsed.", exception);
         }

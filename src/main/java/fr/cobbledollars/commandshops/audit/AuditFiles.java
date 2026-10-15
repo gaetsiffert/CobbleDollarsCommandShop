@@ -60,7 +60,7 @@ public final class AuditFiles {
                 """;
     }
 
-    private static AuditConfig parseConfig(JsonObject root, String context) throws IOException {
+    public static AuditConfig parseConfig(JsonObject root, String context) throws IOException {
         AuditConfig defaults = AuditConfig.defaults();
         boolean enabled = readBoolean(root, "enabled", defaults.enabled(), context);
         boolean flushEachEntry = readBoolean(root, "flush_each_entry", defaults.flushEachEntry(), context);

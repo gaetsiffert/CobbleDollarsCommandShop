@@ -64,6 +64,7 @@ public final class ConfigGuideFiles {
                 
                 Admin commands (`permission level 2`):
                 
+                - `/cdshops admin` (requires this addon on the administrator's client)
                 - `/cdshops open <shop> <targets>`
                 - `/cdshops reload`
                 - `/cdshops restock <shop> all <players>`

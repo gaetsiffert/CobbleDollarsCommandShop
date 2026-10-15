@@ -13,6 +13,7 @@ import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import fr.cobbledollars.commandshops.audit.AuditFiles;
+import fr.cobbledollars.commandshops.admin.network.AdminNetwork;
 import fr.cobbledollars.commandshops.audit.AuditLogService;
 import fr.cobbledollars.commandshops.audit.AuditStatsService;
 import fr.cobbledollars.commandshops.audit.AuditStatsSnapshot;
@@ -55,6 +56,9 @@ public final class CommandShopCommands {
 
     public static void register(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("cdshops")
+                .then(Commands.literal("admin")
+                        .requires(CommandShopCommands::canUseCommand)
+                        .executes(context -> openAdmin(context.getSource())))
                 .then(Commands.literal("open")
                         .then(Commands.argument("shop", StringArgumentType.word())
                                 .suggests(CommandShopCommands::suggestShopIds)
@@ -207,6 +211,16 @@ public final class CommandShopCommands {
 
     private static boolean canUseCommand(CommandSourceStack source) {
         return source.hasPermission(2);
+    }
+
+    private static int openAdmin(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        if (!AdminNetwork.open(player)) {
+            source.sendFailure(Component.translatableWithFallback("cobbledollarscommandshops.command.admin_client_required",
+                    "The administrator interface requires an up-to-date CobbleDollars Command Shops installation on your client."));
+            return 0;
+        }
+        return 1;
     }
 
     private static int openForImplicitTarget(CommandSourceStack source, String shopId) throws CommandSyntaxException {

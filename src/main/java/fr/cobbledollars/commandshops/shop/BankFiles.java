@@ -65,17 +65,24 @@ public final class BankFiles {
         Files.createDirectories(bankFile.getParent());
         try (Reader reader = Files.newBufferedReader(bankFile)) {
             JsonElement root = JsonParser.parseReader(reader);
-            if (root == null || root.isJsonNull()) {
-                throw new IOException("Bank file '" + bankFile + "' is empty.");
-            }
+            return parseBankJson(bankFile, root, provider);
+        } catch (RuntimeException exception) {
+            throw new IOException("Bank file '" + bankFile + "' could not be parsed.", exception);
+        }
+    }
 
+    /** Parses an in-memory edit without writing to the active configuration. */
+    public static BankDefinition parseBankJson(Path bankFile, JsonElement root, HolderLookup.Provider provider) throws IOException {
+        if (root == null || root.isJsonNull()) {
+            throw new IOException("Bank file '" + bankFile + "' is empty.");
+        }
+        try {
             if (root.isJsonArray()) {
                 return parseFlatBankArray(bankFile, root.getAsJsonArray(), provider);
             }
             if (root.isJsonObject()) {
                 return parseBankObject(bankFile, root.getAsJsonObject(), provider);
             }
-
             throw new IOException("Bank file '" + bankFile + "' must be a JSON object or array.");
         } catch (RuntimeException exception) {
             throw new IOException("Bank file '" + bankFile + "' could not be parsed.", exception);

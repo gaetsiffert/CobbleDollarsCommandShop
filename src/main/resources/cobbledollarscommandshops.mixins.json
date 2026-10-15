@@ -10,6 +10,7 @@
     "SellHandlerMixin"
   ],
   "client": [
+    "OfferListOrderMixin",
     "OfferTooltipMixin"
   ],
   "injectors": {

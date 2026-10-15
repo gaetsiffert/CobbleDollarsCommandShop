@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
+import fr.cobbledollars.commandshops.admin.network.AdminNetwork;
 import fr.cobbledollars.commandshops.network.payload.BankUiStatePayload;
 import fr.cobbledollars.commandshops.network.payload.ClientOverlayMessagePayload;
 import fr.cobbledollars.commandshops.network.payload.ShopUiStatePayload;
@@ -32,6 +33,7 @@ public final class CommandShopPayloads {
                 (payload, context) -> context.enqueueWork(() -> dispatchBankUiState(payload)));
         registrar.playToClient(ShopUiStatePayload.TYPE, ShopUiStatePayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> dispatchShopUiState(payload)));
+        AdminNetwork.register(registrar);
     }
 
     private static void dispatchOverlayMessage(ClientOverlayMessagePayload payload) {

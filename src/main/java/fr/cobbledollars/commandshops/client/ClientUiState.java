@@ -111,12 +111,29 @@ public final class ClientUiState {
     }
 
     public static void acceptShopUiState(ShopUiStatePayload payload) {
+        SessionState previousState = currentShopState;
         HashMap<OfferKey, ShopUiStatePayload.OfferState> offersByKey = new HashMap<>();
         for (ShopUiStatePayload.OfferState offerState : payload.offers()) {
             offersByKey.put(new OfferKey(offerState.categoryIndex(), offerState.offerIndex()), offerState);
         }
         currentShopState = new SessionState(payload.sessionUuid(), Map.copyOf(offersByKey));
+        // The native shop sync can create the list before our optional session metadata arrives.
+        // Reorder existing entries without rebuilding them so search, focus and scroll are retained.
+        if (previousState == null || !previousState.sessionUuid().equals(payload.sessionUuid())) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.screen instanceof ShopScreen shopScreen && isCommandShop(shopScreen)) {
+                shopScreen.getOfferList().children().sort(Comparator
+                        .comparing(OfferListWidget.OfferEntry::getOfferIndex, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(OfferListWidget.OfferEntry::getIngredientIndex, Comparator.nullsLast(Comparator.naturalOrder())));
+            }
+        }
         clampSelectedBuyAmountToStock();
+    }
+
+    public static boolean isCommandShop(ShopScreen screen) {
+        ShopMenu menu = getShopMenu(screen);
+        return currentShopState != null && menu != null && menu.getCobbleMerchant() != null
+                && currentShopState.sessionUuid().equals(menu.getCobbleMerchant().getMerchantUUID());
     }
 
     public static void acceptBankUiState(BankUiStatePayload payload) {
@@ -173,7 +190,7 @@ public final class ClientUiState {
 
         lines.set(0, buildOfferHeadline(offer, stack, stock));
         lines.add(Component.empty());
-        lines.add(labelValue("cobbledollarscommandshops.ui.label.unit_price", ClientUiFormatter.formatMoney(offer.getPrice()))
+        lines.add(labelValue("cobbledollarscommandshops.ui.label.unit_price", ClientUiFormatter.formatUnitPrice(offer.getPrice(), stack.getCount()))
                 .withStyle(style -> style.withColor(TEXT_GOLD)));
         lines.add(labelValue("cobbledollarscommandshops.ui.label.stock", formatStockValue(stock)));
         if (offerState != null && !offerState.bonuses().isEmpty()) {

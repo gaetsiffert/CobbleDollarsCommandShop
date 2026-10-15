@@ -80,7 +80,7 @@ public final class FeedbackFiles {
                 """;
     }
 
-    private static FeedbackConfig parseConfig(JsonObject root, String context) throws IOException {
+    public static FeedbackConfig parseConfig(JsonObject root, String context) throws IOException {
         FeedbackConfig defaults = FeedbackConfig.defaults();
         return new FeedbackConfig(
                 parseEventConfig(root, "buy_success", defaults.buySuccess(), context),

@@ -1,6 +1,8 @@
 package fr.cobbledollars.commandshops.client;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -39,6 +41,23 @@ public final class ClientUiFormatter {
 
     public static Component formatMoney(BigInteger amount) {
         return Component.literal(amount.toString());
+    }
+
+    /** Informational cost per item; transaction prices still describe whole bundles. */
+    public static Component formatUnitPrice(BigInteger bundlePrice, int bundleCount) {
+        String value = formatUnitPriceText(bundlePrice, bundleCount);
+        int decimalPoint = value.indexOf('.');
+        return decimalPoint < 0 ? Component.literal(value) : Component.translatable(
+                "cobbledollarscommandshops.ui.decimal_number",
+                value.substring(0, decimalPoint), value.substring(decimalPoint + 1));
+    }
+
+    static String formatUnitPriceText(BigInteger bundlePrice, int bundleCount) {
+        BigDecimal total = new BigDecimal(bundlePrice);
+        BigDecimal quantity = BigDecimal.valueOf(Math.max(1, bundleCount));
+        BigDecimal perItem = total.divide(quantity, 3, RoundingMode.HALF_UP).stripTrailingZeros();
+        boolean rounded = perItem.multiply(quantity).compareTo(total) != 0;
+        return (rounded ? "≈ " : "") + perItem.toPlainString();
     }
 
     public static String formatCompactMoney(BigInteger amount) {
