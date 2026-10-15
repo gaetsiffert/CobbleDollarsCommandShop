@@ -35,8 +35,11 @@ public final class AdminNetwork {
     private static final int MAX_SESSIONS = 128;
     private static final int MAX_UPLOADS = 8;
     private static final Map<UUID, ServerSession> SESSIONS = new HashMap<>();
-    private static UUID clientSession;
-    private static AdminTransfer clientTransfer;
+    private static final AdminClientSession CLIENT_SESSION = new AdminClientSession();
+    private static final Map<UUID, IncomingSnapshot> CLIENT_TRANSFERS = new HashMap<>();
+    private static boolean clientCorrelated;
+    private static boolean clientLegacySnapshotAccepted;
+    private static boolean clientConnected;
     private static UUID clientSave;
     private static long clientSaveStarted;
     private static int cleanupTicks;
@@ -51,6 +54,12 @@ public final class AdminNetwork {
                         open(player);
                     }
                 }));
+        registrar.playToServer(AdminOperationRequestPayload.TYPE, AdminOperationRequestPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.player() instanceof ServerPlayer player && !payload.operationId().equals(NO_TRANSFER)) {
+                        open(player, payload.operationId());
+                    }
+                }));
         registrar.playBidirectional(AdminChunkPayload.TYPE, AdminChunkPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.flow() == PacketFlow.SERVERBOUND && context.player() instanceof ServerPlayer player) {
@@ -62,42 +71,38 @@ public final class AdminNetwork {
         registrar.playToClient(AdminResultPayload.TYPE, AdminResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (FMLEnvironment.dist.isClient()) {
-                        if (clientSave == null || payload.transferId().equals(clientSave)
-                                || payload.transferId().equals(NO_TRANSFER)) {
-                            clientSave = null;
-                            dispatchResult(payload.success(), AdminMessage.literal(payload.message()));
-                        }
+                        acceptResult(payload.transferId(), payload.success(), AdminMessage.literal(payload.message()));
                     }
                 }));
         registrar.playToClient(AdminLocalizedResultPayload.TYPE, AdminLocalizedResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
-                    if (FMLEnvironment.dist.isClient() && (clientSave == null || payload.transferId().equals(clientSave)
-                            || payload.transferId().equals(NO_TRANSFER))) {
-                        clientSave = null;
-                        dispatchResult(payload.success(), payload.message());
-                    }
+                    if (FMLEnvironment.dist.isClient()) acceptResult(payload.transferId(), payload.success(), payload.message());
                 }));
     }
 
     /** Returns false only when the client does not support the optional admin protocol. */
     public static boolean open(ServerPlayer player) {
+        return open(player, NO_TRANSFER);
+    }
+
+    private static boolean open(ServerPlayer player, UUID operationId) {
         if (!hasChannels(player)) {
             return false;
         }
-        if (!checkPermission(player, NO_TRANSFER)) {
+        if (!checkPermission(player, operationId)) {
             return true;
         }
         long now = System.currentTimeMillis();
         ServerSession session = SESSIONS.get(player.getUUID());
         if (session != null && session.connection == player.connection.getConnection()
                 && now - session.lastSnapshot < 1_000L) {
-            sendResult(player, NO_TRANSFER, false, translated("network.reload_throttled", "Wait one second before reloading the configuration."));
+            sendResult(player, operationId, false, translated("network.reload_throttled", "Wait one second before reloading the configuration."));
             return true;
         }
         if (session == null || session.connection != player.connection.getConnection()
                 || now - session.lastAccess >= SESSION_TIMEOUT_MILLIS) {
             if (SESSIONS.size() >= MAX_SESSIONS) {
-                sendResult(player, NO_TRANSFER, false, translated("network.too_many_sessions", "Too many administration sessions are open. Try again later."));
+                sendResult(player, operationId, false, translated("network.too_many_sessions", "Too many administration sessions are open. Try again later."));
                 return true;
             }
             session = new ServerSession(player.connection.getConnection(), now);
@@ -107,10 +112,10 @@ public final class AdminNetwork {
         session.lastSnapshot = now;
         session.upload = null;
         try {
-            sendSnapshot(player, session, AdminConfigService.snapshot(player.getServer()));
+            sendSnapshot(player, session, operationId, AdminConfigService.snapshot(player.getServer()));
         } catch (IOException | RuntimeException exception) {
             CobbleDollarsCommandShopsMod.LOGGER.error("Failed to read admin configuration snapshot", exception);
-            sendResult(player, NO_TRANSFER, false, failure("network.load_failed", "Could not load the configuration: %s", exception));
+            sendResult(player, operationId, false, failure("network.load_failed", "Could not load the configuration: %s", exception));
         }
         return true;
     }
@@ -122,35 +127,58 @@ public final class AdminNetwork {
         }
     }
 
+    public static void requestSnapshot(UUID operationId) {
+        if (!FMLEnvironment.dist.isClient()) return;
+        if (!clientCorrelated) {
+            dispatchResult(operationId, false, translated("network.correlated_required", "Update the server addon before editing configuration safely."));
+            return;
+        }
+        CLIENT_SESSION.requested(operationId);
+        PacketDistributor.sendToServer(new AdminOperationRequestPayload(operationId));
+    }
+
     /** Client entry point used by the screen's save action. */
     public static void save(String snapshotJson) {
+        save(snapshotJson, UUID.randomUUID());
+    }
+
+    public static void save(String snapshotJson, UUID operationId) {
         if (!FMLEnvironment.dist.isClient()) {
             return;
         }
-        if (clientSession == null) {
-            dispatchResult(false, translated("network.session_expired_open", "Session expired. Reload the configuration with /cdshops admin."));
+        if (CLIENT_SESSION.id() == null) {
+            dispatchResult(operationId, false, translated("network.session_expired_open", "Session expired. Reload the configuration with /cdshops admin."));
+            return;
+        }
+        if (!clientCorrelated) {
+            dispatchResult(operationId, false, translated("network.correlated_required", "Update the server addon before editing configuration safely."));
             return;
         }
         if (clientSave != null) {
-            dispatchResult(false, translated("network.save_in_progress", "A save is already in progress."));
+            dispatchResult(operationId, false, translated("network.save_in_progress", "A save is already in progress."));
             return;
         }
         try {
             byte[] bytes = AdminTransfer.encode(snapshotJson);
-            clientSave = UUID.randomUUID();
+            CLIENT_SESSION.requested(operationId);
+            clientSave = operationId;
             clientSaveStarted = System.currentTimeMillis();
             for (int index = 0; index * AdminTransfer.CHUNK_BYTES < bytes.length; index++) {
-                PacketDistributor.sendToServer(new AdminChunkPayload(clientSession, clientSave, bytes.length,
+                PacketDistributor.sendToServer(new AdminChunkPayload(CLIENT_SESSION.id(), clientSave, bytes.length,
                         index, AdminTransfer.chunk(bytes, index)));
             }
         } catch (RuntimeException exception) {
             clientSave = null;
-            dispatchResult(false, failure("network.send_failed", "Could not send the configuration: %s", exception));
+            dispatchResult(operationId, false, failure("network.send_failed", "Could not send the configuration: %s", exception));
         }
     }
 
     private static void acceptUpload(ServerPlayer player, AdminChunkPayload payload) {
         if (!checkPermission(player, payload.transferId())) {
+            return;
+        }
+        if (payload.transferId().equals(NO_TRANSFER)) {
+            sendResult(player, NO_TRANSFER, false, translated("transfer.order", "The transfer is incomplete or its chunks are out of order."));
             return;
         }
         long now = System.currentTimeMillis();
@@ -183,7 +211,7 @@ public final class AdminNetwork {
             AdminConfigService.SaveResult result = AdminConfigService.save(player.getServer(), json);
             sendResult(player, payload.transferId(), result.success(), result.message());
             if (result.success() && result.snapshotJson() != null) {
-                sendSnapshot(player, session, result.snapshotJson());
+                sendSnapshot(player, session, payload.transferId(), result.snapshotJson());
             }
         } catch (RuntimeException exception) {
             session.upload = null;
@@ -193,9 +221,8 @@ public final class AdminNetwork {
         }
     }
 
-    private static void sendSnapshot(ServerPlayer player, ServerSession session, String json) {
+    private static void sendSnapshot(ServerPlayer player, ServerSession session, UUID transferId, String json) {
         byte[] bytes = AdminTransfer.encode(json);
-        UUID transferId = UUID.randomUUID();
         for (int index = 0; index * AdminTransfer.CHUNK_BYTES < bytes.length; index++) {
             if (!checkPermission(player, transferId)) {
                 return;
@@ -206,24 +233,37 @@ public final class AdminNetwork {
     }
 
     private static void acceptSnapshot(AdminChunkPayload payload) {
+        if (!clientConnected) return;
         long now = System.currentTimeMillis();
         try {
             if (payload.index() == 0) {
-                clientTransfer = new AdminTransfer(payload.transferId(), payload.totalBytes(), now);
-                clientSession = payload.sessionId();
-                clientSave = null;
+                if (CLIENT_TRANSFERS.size() >= MAX_UPLOADS) {
+                    throw AdminMessages.argument("network.too_many_uploads", "Too many transfers are in progress. Try again later.");
+                }
+                CLIENT_TRANSFERS.put(payload.transferId(), new IncomingSnapshot(payload.sessionId(),
+                        new AdminTransfer(payload.transferId(), payload.totalBytes(), now)));
             }
-            if (clientTransfer == null || !payload.sessionId().equals(clientSession)) {
+            IncomingSnapshot incoming = CLIENT_TRANSFERS.get(payload.transferId());
+            if (incoming == null || !payload.sessionId().equals(incoming.sessionId)) {
                 throw AdminMessages.argument("network.missing_start", "The beginning of the transfer is missing. Try again.");
             }
-            if (clientTransfer.accept(payload.transferId(), payload.totalBytes(), payload.index(), payload.data(), now)) {
-                String json = clientTransfer.text();
-                clientTransfer = null;
-                invokeClient("acceptSnapshot", new Class<?>[] {String.class}, json);
+            if (incoming.transfer.accept(payload.transferId(), payload.totalBytes(), payload.index(), payload.data(), now)) {
+                String json = incoming.transfer.text();
+                CLIENT_TRANSFERS.remove(payload.transferId());
+                CLIENT_SESSION.acceptSnapshot(payload.sessionId(), payload.transferId());
+                if (payload.transferId().equals(NO_TRANSFER)) clientCorrelated = true;
+                if (clientCorrelated) {
+                    invokeClient("acceptSnapshot", new Class<?>[] {UUID.class, String.class}, payload.transferId(), json);
+                } else if (!clientLegacySnapshotAccepted) {
+                    // Read-only compatibility with older servers: unknown ids must never replace a later draft.
+                    clientLegacySnapshotAccepted = true;
+                    CLIENT_SESSION.acceptSnapshot(payload.sessionId(), NO_TRANSFER);
+                    invokeClient("acceptSnapshot", new Class<?>[] {String.class}, json);
+                }
             }
         } catch (RuntimeException exception) {
-            clientTransfer = null;
-            dispatchResult(false, failure("network.receive_failed", "Could not receive the configuration: %s", exception));
+            CLIENT_TRANSFERS.remove(payload.transferId());
+            dispatchResult(payload.transferId(), false, failure("network.receive_failed", "Could not receive the configuration: %s", exception));
         }
     }
 
@@ -252,6 +292,17 @@ public final class AdminNetwork {
         }
     }
 
+    private static void acceptResult(UUID operationId, boolean success, AdminMessage message) {
+        if (!clientConnected) return;
+        if (operationId.equals(clientSave)) clientSave = null;
+        dispatchResult(operationId, success, message);
+    }
+
+    private static void dispatchResult(UUID operationId, boolean success, AdminMessage message) {
+        invokeClient("acceptLocalizedResult", new Class<?>[] {UUID.class, boolean.class, AdminMessage.class}, operationId, success, message);
+    }
+
+    /** Local UI diagnostics have no pending network operation (also exercised by the client smoke test). */
     private static void dispatchResult(boolean success, AdminMessage message) {
         invokeClient("acceptLocalizedResult", new Class<?>[] {boolean.class, AdminMessage.class}, success, message);
     }
@@ -262,21 +313,39 @@ public final class AdminNetwork {
     }
 
     static void clearClientState() {
-        clientSession = null;
-        clientTransfer = null;
+        clientConnected = false;
+        CLIENT_SESSION.clear();
+        CLIENT_TRANSFERS.clear();
+        clientCorrelated = false;
+        clientLegacySnapshotAccepted = false;
         clientSave = null;
+        invokeClient("clear", new Class<?>[0]);
+    }
+
+    static void beginClientConnection() {
+        clearClientState();
+        clientConnected = true;
     }
 
     static void tickClient() {
         long now = System.currentTimeMillis();
-        if (clientTransfer != null && clientTransfer.expired(now)) {
-            clientTransfer = null;
-            dispatchResult(false, translated("network.receive_timeout", "Receiving the configuration timed out. Reload it."));
+        Iterator<Map.Entry<UUID, IncomingSnapshot>> incoming = CLIENT_TRANSFERS.entrySet().iterator();
+        while (incoming.hasNext()) {
+            Map.Entry<UUID, IncomingSnapshot> entry = incoming.next();
+            if (entry.getValue().transfer.expired(now)) {
+                incoming.remove();
+                dispatchTimeout(entry.getKey(), translated("network.receive_timeout", "Receiving the configuration timed out. Reload it."));
+            }
         }
         if (clientSave != null && now - clientSaveStarted > AdminTransfer.TIMEOUT_MILLIS + 5_000L) {
+            UUID operationId = clientSave;
             clientSave = null;
-            dispatchResult(false, translated("network.response_timeout", "The server did not respond. Reload the configuration to check whether it was saved."));
+            dispatchTimeout(operationId, translated("network.response_timeout", "The server did not respond. Reload the configuration to check whether it was saved."));
         }
+    }
+
+    private static void dispatchTimeout(UUID operationId, AdminMessage message) {
+        invokeClient("acceptTimeout", new Class<?>[] {UUID.class, AdminMessage.class}, operationId, message);
     }
 
     private static void invokeClient(String method, Class<?>[] types, Object... args) {
@@ -339,4 +408,6 @@ public final class AdminNetwork {
             this.lastAccess = now;
         }
     }
+
+    private record IncomingSnapshot(UUID sessionId, AdminTransfer transfer) { }
 }

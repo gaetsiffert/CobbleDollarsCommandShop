@@ -1,6 +1,7 @@
 package fr.cobbledollars.commandshops.client.admin
 
 import com.google.gson.JsonElement
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
@@ -52,7 +53,7 @@ object AdminConfigSchema {
     private fun required(schema: ConfigSchema) = ConfigField(schema, true)
     private fun choice(value: String, vararg options: String) = text(value).copy(choices = options.toList())
 
-    val conditions = obj(
+    private val conditionGroups = obj(
         "player_tags_all" to optional(list(text("tag"))),
         "player_tags_any" to optional(list(text("tag"))),
         "player_tags_none" to optional(list(text("tag"))),
@@ -69,6 +70,47 @@ object AdminConfigSchema {
             default = "{\"objective\":\"objective\",\"min\":0}"
         )))
     )
+
+    /** Also defines the legacy evaluator order when converting an object to ordered rules. */
+    val conditionTypes: List<String> = conditionGroups.fields.keys.toList()
+
+    private val ruleFields = conditionGroups.fields.mapValues { (_, field) ->
+        // A newly selected family starts with a valid, editable condition instead of an empty group.
+        val item = field.schema.element!!.newValue()
+        ConfigField(field.schema.copy(defaultJson = JsonArray().apply { add(item) }.toString()))
+    }
+    val visibilityConditionRule = ConfigSchema(
+        "{\"player_tags_all\":[\"tag\"]}", fields = ruleFields, variants = conditionTypes
+    )
+    val accessConditionRule = visibilityConditionRule.copy(fields = linkedMapOf<String, ConfigField>().apply {
+        putAll(ruleFields)
+        put("deny_message", optional(text()))
+    })
+
+    // Both forms remain editable. Traversal chooses fields for objects and element for arrays.
+    val conditions = conditionGroups.copy(element = visibilityConditionRule)
+    val accessConditions = conditions.copy(defaultJson = "[]", element = accessConditionRule)
+
+    fun isConditionRule(schema: ConfigSchema): Boolean =
+        schema === visibilityConditionRule || schema === accessConditionRule
+
+    fun isConditions(schema: ConfigSchema): Boolean = schema === conditions || schema === accessConditions
+
+    /** Split independent requirements, keep alternatives grouped, and preserve the evaluator order. */
+    fun orderedConditions(legacy: JsonObject): JsonArray {
+        require(legacy.keySet().all(conditionTypes::contains)) { "Unknown legacy condition fields" }
+        return JsonArray().apply {
+            conditionTypes.forEach { type -> legacy.get(type)?.let { group ->
+                if (!group.isJsonNull && (!group.isJsonArray || !group.asJsonArray.isEmpty)) {
+                    if (group.isJsonArray && type in listOf("player_tags_all", "player_tags_none", "advancements_all", "scores_all")) {
+                        group.asJsonArray.forEach { requirement ->
+                            add(JsonObject().apply { add(type, JsonArray().apply { add(requirement.deepCopy()) }) })
+                        }
+                    } else add(JsonObject().apply { add(type, group.deepCopy()) })
+                }
+            } }
+        }
+    }
 
     val atom = obj(
         "item" to optional(text("minecraft:stone")),
@@ -120,13 +162,14 @@ object AdminConfigSchema {
     )
 
     val shop = obj(
-        "deny_message" to optional(localizedText("access_denied")), "conditions" to optional(conditions),
+        "deny_message" to optional(localizedText("access_denied")), "conditions" to optional(accessConditions),
         "categories" to required(list(category(shopOffer))),
         default = "{\"categories\":[{\"name\":\"New category\",\"offers\":[]}]}"
     )
 
     val bank = obj(
-        "conditions" to optional(conditions), "offers" to optional(list(bankOffer)),
+        "deny_message" to optional(localizedText("access_denied")),
+        "conditions" to optional(accessConditions), "offers" to optional(list(bankOffer)),
         "categories" to optional(list(category(bankOffer))), default = "{\"categories\":[]}"
     )
 
@@ -155,6 +198,17 @@ object AdminConfigSchema {
         path.endsWith("shop.json") -> shop
         value.isJsonArray -> list(bankOffer) // Legacy flat bank format is preserved.
         else -> bank
+    }
+
+    fun atPath(path: String, root: JsonElement, segments: List<String>): ConfigSchema {
+        var node = root
+        var schema = forFile(path, root)
+        segments.forEach { segment ->
+            schema = if (node.isJsonArray) schema.element ?: ConfigSchema("{}")
+                else schema.fields[segment]?.schema ?: ConfigSchema("{}")
+            node = if (node.isJsonArray) node.asJsonArray[segment.toInt()] else node.asJsonObject.get(segment)
+        }
+        return schema
     }
 
     /** Missing optional fields stay absent until explicitly added in the form. */

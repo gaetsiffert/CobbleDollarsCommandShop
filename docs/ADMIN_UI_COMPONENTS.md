@@ -83,6 +83,24 @@ et le recalage après réduction d'un composant dynamique.
 `UiColorCodecTest` vérifie les échanges hexadécimal/RGB, les saisies invalides
 et les limites des canaux.
 
+Les sélecteurs de format sonore et de réapprovisionnement conservent leurs
+valeurs quand l'option courante est sélectionnée à nouveau. Les erreurs locales
+sont affichées sous les champs, sans remplacer les composants partagés ; le
+serveur effectue toujours la validation complète. Supprimer la dernière valeur
+d'une règle ordonnée propose de supprimer cette règle entière.
+
+Les messages et sons affichent les valeurs héritées en grisé. Personnaliser
+copie les valeurs effectives de l'événement, tandis que rétablir les valeurs par
+défaut retire la personnalisation. Écouter joue localement le son du brouillon,
+avec son volume et sa hauteur, sans sauvegarde ni paquet envoyé au serveur.
+
+Les sauvegardes et rechargements sont corrélés à leur demande et au brouillon
+envoyé. Une réponse tardive est mise de côté si le brouillon a changé ou si la
+demande a expiré ; le bouton Charger l'état serveur permet de la reprendre
+explicitement. Fermer l'écran ou se déconnecter invalide ses demandes. Les
+anciens serveurs restent consultables mais demandent une mise à jour avant
+l'édition, car ils ne corrèlent pas les réponses de rechargement.
+
 Exécution ciblée :
 
 ```powershell
@@ -90,8 +108,10 @@ Exécution ciblée :
 ```
 
 Le scénario opt-in `ClientAdminUiSmokeTest` ouvre un client Minecraft réel avec
-un brouillon détaché, vérifie les formulaires et capture cinq vues : boutique,
-liste des offres, offre, messages et banque. Il ferme le client après les captures sans envoyer de
+un brouillon détaché, vérifie les formulaires et capture neuf vues : boutique,
+liste des offres, offre, messages, banque, liste des conditions, condition individuelle,
+valeurs héritées des messages et erreur de saisie.
+Il ferme le client après les captures sans envoyer de
 sauvegarde ni modifier les configurations du serveur.
 
 ```powershell
@@ -99,8 +119,10 @@ sauvegarde ni modifier les configurations du serveur.
 ```
 
 Les captures sont écrites dans `run/screenshots/admin-root.png`,
-`admin-offers.png`, `admin-offer.png`, `admin-feedback.png` et `admin-bank.png`.
-Le journal indique `CLIENT_ADMIN_UI_SMOKE_RESULT: PASS` après les cinq rendus.
+`admin-offers.png`, `admin-offer.png`, `admin-feedback.png`, `admin-bank.png`,
+`admin-conditions.png`, `admin-condition.png`, `admin-feedback-defaults.png` et
+`admin-inline-error.png`.
+Le journal indique `CLIENT_ADMIN_UI_SMOKE_RESULT: PASS` après les neuf rendus.
 Le scénario vérifie aussi les aides et les infobulles des boutons de liste,
 ainsi que le placement du nom et des actions sur une même ligne compacte, sans
 chevauchement entre l'aide et les boutons.
@@ -109,6 +131,15 @@ arrivée tardive des données, sélection, recherche, changement de catégorie e
 isolation des autres marchands. Ce scénario ne simule pas de session multijoueur.
 `ClientAdminLocalizationSmokeTest` vérifie les ressources françaises, anglaises
 et le repli vers l'anglais, puis le passage d'un message localisé jusqu'à l'écran.
+Il couvre aussi les huit motifs de refus par défaut et la priorité des messages
+personnalisés et historiques. Le formulaire des règles vérifie que sélectionner
+le type déjà actif conserve ses valeurs et son message.
+`ClientAdminUsabilitySmokeTest` vérifie les sélections de son/réapprovisionnement,
+la suppression d'une condition entière, les valeurs héritées et la préécoute
+locale avec le véritable gestionnaire de sons.
+`ClientAdminOperationSmokeTest` passe par le récepteur de paquets, le bridge et
+le véritable écran pour vérifier les retards, nouvelles modifications,
+opérations remplacées, renouvellements de session et fermetures/déconnexions.
 Les tests du document, de la persistance et du transport couvrent séparément
 les brouillons, les grandes valeurs, les conflits, la validation, le rollback
 et les transferts fragmentés.

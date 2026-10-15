@@ -18,6 +18,7 @@ import net.minecraft.world.item.crafting.Ingredient;
 public final class BankDefinition {
     private final List<BankCategoryDefinition> categories;
     private final ConditionSet conditions;
+    private final String denyMessage;
     private final Path sourceFile;
     private final List<ConditionSet> allConditions;
     private final boolean hasPlayerStateConditions;
@@ -26,8 +27,13 @@ public final class BankDefinition {
     private final BankRuntimeBuilder runtimeBuilder;
 
     public BankDefinition(List<BankCategoryDefinition> categories, ConditionSet conditions, Path sourceFile) {
+        this(categories, conditions, null, sourceFile);
+    }
+
+    public BankDefinition(List<BankCategoryDefinition> categories, ConditionSet conditions, String denyMessage, Path sourceFile) {
         this.categories = List.copyOf(categories);
         this.conditions = conditions == null ? ConditionSet.NONE : conditions;
+        this.denyMessage = denyMessage == null || denyMessage.isBlank() ? null : denyMessage;
         this.sourceFile = sourceFile;
         this.allConditions = collectConditions(this.conditions, categories);
         this.hasPlayerStateConditions = allConditions.stream().anyMatch(ConditionSet::hasPlayerStateConditions);
@@ -42,6 +48,10 @@ public final class BankDefinition {
 
     public ConditionSet conditions() {
         return conditions;
+    }
+
+    public String denyMessage() {
+        return denyMessage;
     }
 
     public Path sourceFile() {

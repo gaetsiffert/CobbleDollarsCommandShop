@@ -109,4 +109,54 @@ class AdminEditorDocumentTest {
         assertEquals("Access denied", doc.files.getAsJsonObject(created).get("deny_message").asString)
         assertEquals("B", doc.resolve(created, listOf("categories", "1", "name")).asString)
     }
+
+    @Test
+    fun `legacy condition conversion splits independent requirements and preserves grouped alternatives`() {
+        val legacy = JsonParser.parseString("""{
+            "scores_all":[{"objective":"badges","min":4}],
+            "player_tags_any":["vip","staff"],
+            "player_tags_all":["member","trusted"],
+            "dimensions_any":[]
+        }""").asJsonObject
+        val rules = AdminConfigSchema.orderedConditions(legacy)
+        assertEquals(listOf("player_tags_all", "player_tags_all", "player_tags_any", "scores_all"), rules.map { it.asJsonObject.keySet().single() })
+        assertEquals("member", rules[0].asJsonObject.getAsJsonArray("player_tags_all")[0].asString)
+        assertEquals("trusted", rules[1].asJsonObject.getAsJsonArray("player_tags_all")[0].asString)
+        assertEquals(listOf("vip", "staff"), rules[2].asJsonObject.getAsJsonArray("player_tags_any").map { it.asString })
+        rules[2].asJsonObject.getAsJsonArray("player_tags_any").remove(0)
+        assertEquals(2, legacy.getAsJsonArray("player_tags_any").size(), "Converted rules must not share mutable values with the original")
+        assertThrows(IllegalArgumentException::class.java) {
+            AdminConfigSchema.orderedConditions(JsonParser.parseString("""{"extension":true}""").asJsonObject)
+        }
+    }
+
+    @Test
+    fun `condition metadata traverses both legacy groups and ordered access rules`() {
+        val path = "shops/example/shop.json"
+        val legacy = JsonParser.parseString("""{"conditions":{"scores_all":[{"objective":"badges","min":4}]},"categories":[]}""")
+        val score = AdminConfigSchema.atPath(path, legacy, listOf("conditions", "scores_all", "0"))
+        assertTrue(score.fields.keys.containsAll(listOf("objective", "min", "max", "equals")))
+        val ordered = JsonParser.parseString("""{"conditions":[{"scores_all":[{"objective":"badges","min":4}],"deny_message":"Four badges needed"}],"categories":[]}""")
+        assertSame(AdminConfigSchema.accessConditionRule, AdminConfigSchema.atPath(path, ordered, listOf("conditions", "0")))
+        assertTrue(AdminConfigSchema.atPath(path, ordered, listOf("conditions", "0", "scores_all", "0")).fields.containsKey("objective"))
+        assertEquals("", AdminConfigSchema.accessConditionRule.fields.getValue("deny_message").schema.newValue().asString)
+    }
+
+    @Test
+    fun `new root rules are ordered while visibility conditions offer no denial field`() {
+        for (schema in listOf(AdminConfigSchema.shop, AdminConfigSchema.bank)) {
+            val rootConditions = schema.fields.getValue("conditions").schema
+            assertTrue(rootConditions.newValue().isJsonArray)
+            assertSame(AdminConfigSchema.accessConditionRule, rootConditions.element)
+            assertTrue(schema.fields.containsKey("deny_message"))
+        }
+        val visibilityConditions = AdminConfigSchema.shopOffer.fields.getValue("conditions").schema
+        assertTrue(visibilityConditions.newValue().isJsonObject)
+        assertFalse(visibilityConditions.element!!.fields.containsKey("deny_message"))
+        assertEquals(AdminConfigSchema.conditionTypes, AdminConfigSchema.accessConditionRule.variants)
+        for (type in AdminConfigSchema.conditionTypes) {
+            val values = AdminConfigSchema.accessConditionRule.fields.getValue(type).schema.newValue().asJsonArray
+            assertEquals(1, values.size(), "A new $type rule must contain an editable condition")
+        }
+    }
 }

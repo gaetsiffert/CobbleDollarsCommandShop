@@ -281,6 +281,12 @@ Examples:
 - heavy benchmark reload/parse timing: JUnit perf
 - heavy benchmark `openShop` / `refreshPlayerSession` / `handleCustomSell`: GameTest perf
 
+`CommandShopMenuTransitionGameTests` exercises the native bank-button packet order:
+`CloseShopPacket`, vanilla container close, then `OpenBankPacket`. Direct calls to
+`openCustomBank` while the shop menu is still open do not cover this flow. The
+tests also cover a tick between those packets, bank-to-shop item returns, denied
+access restoring the shop, and expiration of a closed session.
+
 ## Observations and constraints
 
 These are important implementation observations, not theory.

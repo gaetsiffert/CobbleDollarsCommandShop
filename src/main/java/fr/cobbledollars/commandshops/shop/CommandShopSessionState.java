@@ -8,6 +8,7 @@ final class CommandShopSessionState {
     private final String shopId;
     private final UUID sessionUuid;
     private final int containerId;
+    private long lastViewedTick;
     private long nextRefreshTick;
     private ResourceLocation lastDimensionId;
     private ShopSessionSnapshot lastSnapshot;
@@ -16,6 +17,7 @@ final class CommandShopSessionState {
         this.shopId = shopId;
         this.sessionUuid = sessionUuid;
         this.containerId = containerId;
+        this.lastViewedTick = Long.MIN_VALUE;
         this.nextRefreshTick = Long.MAX_VALUE;
         this.lastDimensionId = null;
         this.lastSnapshot = null;
@@ -31,6 +33,14 @@ final class CommandShopSessionState {
 
     int containerId() {
         return containerId;
+    }
+
+    long lastViewedTick() {
+        return lastViewedTick;
+    }
+
+    void setLastViewedTick(long lastViewedTick) {
+        this.lastViewedTick = lastViewedTick;
     }
 
     long nextRefreshTick() {

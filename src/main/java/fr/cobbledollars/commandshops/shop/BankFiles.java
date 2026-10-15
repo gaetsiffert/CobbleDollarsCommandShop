@@ -97,6 +97,7 @@ public final class BankFiles {
     private static BankDefinition parseBankObject(Path bankFile, JsonObject rootObject, HolderLookup.Provider provider) throws IOException {
         String context = "bank file '" + bankFile + "'";
         ConditionSet bankConditions = ConditionSet.readOptional(rootObject, context);
+        String denyMessage = ConfigParsing.readOptionalString(rootObject, "deny_message", null, context);
         boolean hasOffers = rootObject.has("offers");
         boolean hasCategories = rootObject.has("categories");
 
@@ -107,7 +108,7 @@ public final class BankFiles {
         if (hasOffers) {
             JsonArray offersArray = ConfigParsing.readRequiredArray(rootObject, "offers", context);
             List<BankOfferDefinition> offers = parseOffersArray(offersArray, context, provider);
-            return new BankDefinition(List.of(new BankCategoryDefinition("Default", offers, ConditionSet.NONE)), bankConditions, bankFile);
+            return new BankDefinition(List.of(new BankCategoryDefinition("Default", offers, ConditionSet.NONE)), bankConditions, denyMessage, bankFile);
         }
 
         JsonArray categoriesArray = ConfigParsing.readRequiredArray(rootObject, "categories", context);
@@ -126,7 +127,7 @@ public final class BankFiles {
             categories.add(new BankCategoryDefinition(categoryName, parseOffersArray(offersArray, categoryContext, provider), categoryConditions));
         }
 
-        return new BankDefinition(categories, bankConditions, bankFile);
+        return new BankDefinition(categories, bankConditions, denyMessage, bankFile);
     }
 
     private static List<BankOfferDefinition> parseOffersArray(JsonArray offersArray, String context, HolderLookup.Provider provider) throws IOException {
@@ -168,6 +169,9 @@ public final class BankFiles {
     private static JsonElement toJson(BankDefinition bank) {
         JsonObject root = new JsonObject();
         ConditionSet.writeOptional(root, bank.conditions());
+        if (bank.denyMessage() != null) {
+            root.addProperty("deny_message", bank.denyMessage());
+        }
         JsonArray categoriesArray = new JsonArray();
         for (BankCategoryDefinition category : bank.categories()) {
             JsonObject categoryObject = new JsonObject();

@@ -11,6 +11,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.advancements.AdvancementHolder;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.scores.Objective;
@@ -18,6 +19,10 @@ import net.minecraft.world.scores.ReadOnlyScoreInfo;
 import net.minecraft.world.scores.Scoreboard;
 
 public final class ConditionSet {
+    private static final List<String> CONDITION_TYPES = List.of(
+            "player_tags_all", "player_tags_any", "player_tags_none", "advancements_all",
+            "advancements_any", "dimensions_any", "time_ranges_any", "scores_all"
+    );
     public static final ConditionSet NONE = new ConditionSet(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
 
     private final List<String> playerTagsAll;
@@ -33,6 +38,8 @@ public final class ConditionSet {
     private final boolean hasPlayerStateConditions;
     private final boolean hasDimensionConditions;
     private final boolean hasTimeConditions;
+    // Null retains the legacy object format and its established family order.
+    private final List<Rule> orderedRules;
 
     public ConditionSet(
             List<String> playerTagsAll,
@@ -43,6 +50,16 @@ public final class ConditionSet {
             List<ResourceLocation> dimensionsAny,
             List<TimeRangeCondition> timeRangesAny,
             List<ScoreCondition> scoresAll
+    ) {
+        this(playerTagsAll, playerTagsAny, playerTagsNone, advancementsAll, advancementsAny,
+                dimensionsAny, timeRangesAny, scoresAll, null);
+    }
+
+    private ConditionSet(
+            List<String> playerTagsAll, List<String> playerTagsAny, List<String> playerTagsNone,
+            List<ResourceLocation> advancementsAll, List<ResourceLocation> advancementsAny,
+            List<ResourceLocation> dimensionsAny, List<TimeRangeCondition> timeRangesAny,
+            List<ScoreCondition> scoresAll, List<Rule> orderedRules
     ) {
         this.playerTagsAll = List.copyOf(playerTagsAll);
         this.playerTagsAny = List.copyOf(playerTagsAny);
@@ -62,6 +79,7 @@ public final class ConditionSet {
         this.hasDimensionConditions = !this.dimensionsAny.isEmpty();
         this.hasTimeConditions = !this.timeRangesAny.isEmpty();
         this.empty = !hasPlayerStateConditions && !hasDimensionConditions && !hasTimeConditions;
+        this.orderedRules = orderedRules == null ? null : List.copyOf(orderedRules);
     }
 
     public static ConditionSet readOptional(JsonObject object, String context) throws IOException {
@@ -69,11 +87,17 @@ public final class ConditionSet {
         if (element == null || element.isJsonNull()) {
             return NONE;
         }
+        if (element.isJsonArray()) {
+            return readOrderedRules(element.getAsJsonArray(), context);
+        }
         if (!element.isJsonObject()) {
-            throw new IOException("Field 'conditions' in " + context + " must be an object.");
+            throw new IOException("Field 'conditions' in " + context + " must be an object or an array of rules.");
         }
 
-        JsonObject conditionsObject = element.getAsJsonObject();
+        return readLegacyConditions(element.getAsJsonObject(), context);
+    }
+
+    private static ConditionSet readLegacyConditions(JsonObject conditionsObject, String context) throws IOException {
         List<String> playerTagsAll = readStringArray(conditionsObject, "player_tags_all", context);
         List<String> playerTagsAny = readStringArray(conditionsObject, "player_tags_any", context);
         List<String> playerTagsNone = readStringArray(conditionsObject, "player_tags_none", context);
@@ -94,6 +118,86 @@ public final class ConditionSet {
             return NONE;
         }
         return new ConditionSet(playerTagsAll, playerTagsAny, playerTagsNone, advancementsAll, advancementsAny, dimensionsAny, timeRangesAny, scoresAll);
+    }
+
+    private static ConditionSet readOrderedRules(JsonArray array, String context) throws IOException {
+        ArrayList<Rule> rules = new ArrayList<>(array.size());
+        ArrayList<String> tagsAll = new ArrayList<>();
+        ArrayList<String> tagsAny = new ArrayList<>();
+        ArrayList<String> tagsNone = new ArrayList<>();
+        ArrayList<ResourceLocation> advancementsAll = new ArrayList<>();
+        ArrayList<ResourceLocation> advancementsAny = new ArrayList<>();
+        ArrayList<ResourceLocation> dimensions = new ArrayList<>();
+        ArrayList<TimeRangeCondition> timeRanges = new ArrayList<>();
+        ArrayList<ScoreCondition> scores = new ArrayList<>();
+        for (int index = 0; index < array.size(); index++) {
+            String ruleContext = context + ", conditions[" + index + "]";
+            JsonElement entry = array.get(index);
+            if (!entry.isJsonObject()) {
+                throw new IOException("Condition rule in " + ruleContext + " must be an object.");
+            }
+            JsonObject object = entry.getAsJsonObject();
+            String type = null;
+            for (String key : object.keySet()) {
+                if (key.equals("deny_message")) {
+                    continue;
+                }
+                if (!CONDITION_TYPES.contains(key)) {
+                    throw new IOException("Unknown condition field '" + key + "' in " + ruleContext + ".");
+                }
+                if (type != null) {
+                    throw new IOException("Condition rule in " + ruleContext + " must define exactly one condition type.");
+                }
+                type = key;
+            }
+            if (type == null) {
+                throw new IOException("Condition rule in " + ruleContext + " must define exactly one condition type.");
+            }
+            validateOrderedValues(object, type, ruleContext);
+            ConditionSet condition = readLegacyConditions(object, ruleContext);
+            if (condition.isEmpty()) {
+                throw new IOException("Condition rule in " + ruleContext + " cannot have an empty condition list.");
+            }
+            String denyMessage = ConfigParsing.readOptionalString(object, "deny_message", null, ruleContext);
+            if (denyMessage != null && denyMessage.isBlank()) {
+                denyMessage = null;
+            }
+            rules.add(new Rule(condition, new Failure(type, denyMessage)));
+            tagsAll.addAll(condition.playerTagsAll);
+            tagsAny.addAll(condition.playerTagsAny);
+            tagsNone.addAll(condition.playerTagsNone);
+            advancementsAll.addAll(condition.advancementsAll);
+            advancementsAny.addAll(condition.advancementsAny);
+            dimensions.addAll(condition.dimensionsAny);
+            timeRanges.addAll(condition.timeRangesAny);
+            scores.addAll(condition.scoresAll);
+        }
+        return new ConditionSet(tagsAll, tagsAny, tagsNone, advancementsAll, advancementsAny,
+                dimensions, timeRanges, scores, rules);
+    }
+
+    private static void validateOrderedValues(JsonObject object, String type, String context) throws IOException {
+        JsonElement values = object.get(type);
+        if (values == null || !values.isJsonArray()) {
+            throw new IOException("Field '" + type + "' in " + context + " must be an array.");
+        }
+        Set<String> allowedFields = switch (type) {
+            case "time_ranges_any" -> Set.of("start_tick", "end_tick");
+            case "scores_all" -> Set.of("objective", "min", "max", "equals");
+            default -> null;
+        };
+        if (allowedFields == null) {
+            return;
+        }
+        for (JsonElement value : values.getAsJsonArray()) {
+            if (value.isJsonObject()) {
+                for (String key : value.getAsJsonObject().keySet()) {
+                    if (!allowedFields.contains(key)) {
+                        throw new IOException("Unknown field '" + key + "' in condition '" + type + "' for " + context + ".");
+                    }
+                }
+            }
+        }
     }
 
     public boolean isEmpty() {
@@ -149,17 +253,33 @@ public final class ConditionSet {
     }
 
     public boolean test(ServerPlayer player) {
-        return test(ConditionContext.capture(player));
+        return firstFailure(player) == null;
     }
 
     public boolean test(ConditionContext context) {
+        return firstFailure(context) == null;
+    }
+
+    public Failure firstFailure(ServerPlayer player) {
+        return firstFailure(ConditionContext.capture(player));
+    }
+
+    public Failure firstFailure(ConditionContext context) {
         if (isEmpty()) {
-            return true;
+            return null;
+        }
+        if (orderedRules != null) {
+            for (Rule rule : orderedRules) {
+                if (rule.condition().firstFailure(context) != null) {
+                    return rule.failure();
+                }
+            }
+            return null;
         }
 
         Set<String> playerTags = context.playerTags();
         if (!playerTags.containsAll(playerTagsAll)) {
-            return false;
+            return new Failure("player_tags_all", null);
         }
         if (!playerTagsAny.isEmpty()) {
             boolean matched = false;
@@ -170,18 +290,18 @@ public final class ConditionSet {
                 }
             }
             if (!matched) {
-                return false;
+                return new Failure("player_tags_any", null);
             }
         }
         for (String forbiddenTag : playerTagsNone) {
             if (playerTags.contains(forbiddenTag)) {
-                return false;
+                return new Failure("player_tags_none", null);
             }
         }
 
         for (ResourceLocation advancementId : advancementsAll) {
             if (!context.hasAdvancement(advancementId)) {
-                return false;
+                return new Failure("advancements_all", null);
             }
         }
         if (!advancementsAny.isEmpty()) {
@@ -193,7 +313,7 @@ public final class ConditionSet {
                 }
             }
             if (!matched) {
-                return false;
+                return new Failure("advancements_any", null);
             }
         }
 
@@ -207,7 +327,7 @@ public final class ConditionSet {
                 }
             }
             if (!matched) {
-                return false;
+                return new Failure("dimensions_any", null);
             }
         }
 
@@ -221,17 +341,43 @@ public final class ConditionSet {
                 }
             }
             if (!matched) {
-                return false;
+                return new Failure("time_ranges_any", null);
             }
         }
 
         for (ScoreCondition scoreCondition : scoresAll) {
             if (!scoreCondition.test(context)) {
-                return false;
+                return new Failure("scores_all", null);
             }
         }
 
-        return true;
+        return null;
+    }
+
+    private record Rule(ConditionSet condition, Failure failure) {
+    }
+
+    public record Failure(String type, String denyMessage) {
+        public Component message(String legacyFallback) {
+            if (denyMessage != null && !denyMessage.isBlank()) {
+                return Component.literal(denyMessage);
+            }
+            if (legacyFallback != null && !legacyFallback.isBlank()) {
+                return Component.literal(legacyFallback);
+            }
+            String fallback = switch (type) {
+                case "player_tags_all" -> "You are missing a required player tag.";
+                case "player_tags_any" -> "You need at least one of the required player tags.";
+                case "player_tags_none" -> "You have a player tag that prevents access.";
+                case "advancements_all" -> "You have not completed a required advancement.";
+                case "advancements_any" -> "You must complete at least one of the required advancements.";
+                case "dimensions_any" -> "You cannot access this from your current dimension.";
+                case "time_ranges_any" -> "You cannot access this at the current time.";
+                case "scores_all" -> "You do not meet a required scoreboard condition.";
+                default -> "You do not meet the access conditions.";
+            };
+            return Component.translatableWithFallback("cobbledollarscommandshops.feedback.condition_denied." + type, fallback);
+        }
     }
 
     private static List<TimeWindowMath.TimeWindow> toTimeWindows(List<TimeRangeCondition> timeRanges) {
@@ -359,10 +505,27 @@ public final class ConditionSet {
     }
 
     public static void writeOptional(JsonObject target, ConditionSet conditions) {
-        if (conditions == null || conditions.isEmpty()) {
+        if (conditions == null) {
             return;
         }
+        if (conditions.orderedRules != null) {
+            JsonArray array = new JsonArray();
+            for (Rule rule : conditions.orderedRules) {
+                JsonObject object = writeLegacyConditions(rule.condition());
+                if (rule.failure().denyMessage() != null) {
+                    object.addProperty("deny_message", rule.failure().denyMessage());
+                }
+                array.add(object);
+            }
+            target.add("conditions", array);
+            return;
+        }
+        if (!conditions.isEmpty()) {
+            target.add("conditions", writeLegacyConditions(conditions));
+        }
+    }
 
+    private static JsonObject writeLegacyConditions(ConditionSet conditions) {
         JsonObject object = new JsonObject();
         writeStringArray(object, "player_tags_all", conditions.playerTagsAll());
         writeStringArray(object, "player_tags_any", conditions.playerTagsAny());
@@ -372,9 +535,7 @@ public final class ConditionSet {
         writeResourceLocationArray(object, "dimensions_any", conditions.dimensionsAny());
         writeTimeRanges(object, "time_ranges_any", conditions.timeRangesAny());
         writeScoreConditions(object, "scores_all", conditions.scoresAll());
-        if (object.size() > 0) {
-            target.add("conditions", object);
-        }
+        return object;
     }
 
     private static void writeStringArray(JsonObject target, String key, List<String> values) {
@@ -479,6 +640,17 @@ public final class ConditionSet {
             this.timeOfDay = Math.floorMod(player.level().getDayTime(), 24000L);
         }
 
+        // A detached snapshot supports evaluating conditions without a live server.
+        ConditionContext(Set<String> playerTags, ResourceLocation dimensionId, long timeOfDay,
+                         Map<ResourceLocation, Boolean> advancements, Map<String, Integer> scores) {
+            this.player = null;
+            this.playerTags = Set.copyOf(playerTags);
+            this.dimensionId = dimensionId;
+            this.timeOfDay = Math.floorMod(timeOfDay, 24000L);
+            this.advancementsById.putAll(advancements);
+            this.scoresByObjective.putAll(scores);
+        }
+
         public static ConditionContext capture(ServerPlayer player) {
             return new ConditionContext(player);
         }
@@ -500,6 +672,9 @@ public final class ConditionSet {
             if (cached != null) {
                 return cached.booleanValue();
             }
+            if (player == null) {
+                return false;
+            }
 
             AdvancementHolder advancement = player.getServer().getAdvancements().get(advancementId);
             boolean completed = advancement != null && player.getAdvancements().getOrStartProgress(advancement).isDone();
@@ -510,6 +685,9 @@ public final class ConditionSet {
         private Integer score(String objectiveName) {
             if (scoresByObjective.containsKey(objectiveName)) {
                 return scoresByObjective.get(objectiveName);
+            }
+            if (player == null) {
+                return null;
             }
 
             Scoreboard scoreboard = player.getScoreboard();

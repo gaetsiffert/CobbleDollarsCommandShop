@@ -126,7 +126,7 @@ public final class ConfigGuideFiles {
                 
                 ### Shop Fields
                 
-                - `deny_message`: optional raw text message shown when the player cannot open the shop
+                - `deny_message`: optional legacy fallback text when a failed access rule has no custom message
                 - `conditions`: optional conditions applied to the whole shop
                 - `categories`: required array
                 - `categories[].name`: name displayed in the CobbleDollars UI
@@ -217,6 +217,7 @@ public final class ConfigGuideFiles {
                 
                 ### Bank Fields
                 
+                - `deny_message`: optional fallback text when a failed bank access rule has no custom message
                 - `conditions`: optional conditions for the whole bank
                 - `offers`: direct list of bank entries
                 - `categories`: optional category list instead of `offers`
@@ -371,6 +372,62 @@ public final class ConfigGuideFiles {
                 
                 Conditions can be used on shops, shop categories, shop offers, banks, bank categories, and bank offers.
                 
+                ### Ordered Access Rules and Denial Messages
+
+                For shop-wide and bank-wide access, use an ordered array. Each rule contains exactly
+                one condition family and an optional `deny_message`:
+
+                ```json
+                {
+                  "conditions": [
+                    {
+                      "player_tags_all": ["vip_shop"],
+                      "deny_message": "This access is reserved for VIP players."
+                    },
+                    {
+                      "scores_all": [{ "objective": "badges", "min": 4 }],
+                      "deny_message": "You need at least 4 badges."
+                    },
+                    {
+                      "time_ranges_any": [{ "start_tick": 13000, "end_tick": 23000 }],
+                      "deny_message": "Come back at night."
+                    }
+                  ]
+                }
+                ```
+
+                Rules are checked from top to bottom. The first failed rule blocks access and
+                produces one message. Its custom text takes precedence over the root
+                `deny_message` fallback. If both are absent or blank, the failed condition family
+                has a default message translated into English or French (English fallback).
+                Custom messages are literal text and are not translated automatically.
+
+                Repeat a family in separate rules to give each required tag, advancement or score
+                its own message. Keep alternatives such as `player_tags_any` together: the group
+                only fails when none of its alternatives passes. All rules in the outer array
+                must pass. Empty arrays add no restriction; each individual rule must contain a
+                nonempty condition family.
+
+                The administrator screen lets you edit each rule's message and change the rule
+                order with the arrows. Existing object-format conditions remain supported and
+                can be converted to ordered rules in the editor. Their evaluation order remains:
+                `player_tags_all`, `player_tags_any`, `player_tags_none`, `advancements_all`,
+                `advancements_any`, `dimensions_any`, `time_ranges_any`, `scores_all`.
+
+                Conversion separates independent requirements into individual rules and keeps
+                alternative groups together. Existing root fallback messages are retained.
+
+                Shop conditions are checked before the effective bank's conditions. A failed bank
+                rule keeps the shop open instead of opening an empty bank. Bank access is checked
+                again before selling and while refreshing an open menu; losing access closes the
+                bank normally and returns deposited items. Local banks override the global bank,
+                including its access rules.
+
+                Category and offer conditions filter visibility and pricing candidates. They do
+                not block opening the shop or bank, and their rule messages are not displayed.
+
+                ### Condition Families
+
                 Supported condition keys:
                 
                 - `player_tags_all`

@@ -47,8 +47,8 @@ class AdminHelpCoverageTest {
             schema.element?.let(::visit)
         }
         listOf(AdminConfigSchema.shop, AdminConfigSchema.bank, AdminConfigSchema.audit, AdminConfigSchema.feedback).forEach(::visit)
-        fields += listOf("match_type", "sound_format", "bank_format", "entry", "bank_price", "reward_count", "sound_id")
-        val actions = listOf("edit", "move_up", "move_down", "duplicate", "delete", "add", "remove_option", "parent", "save", "reload", "new_shop", "new_bank", "close", "confirm", "cancel", "pick_item", "select", "bank_to_categories", "bank_to_flat", "bank_upgrade")
+        fields += listOf("match_type", "sound_format", "bank_format", "entry", "bank_price", "reward_count", "sound_id", "condition_type", "condition_rule", "condition_deny_message", "conditions_upgrade", "visibility_conditions", "sound_preview")
+        val actions = listOf("edit", "move_up", "move_down", "duplicate", "delete", "add", "remove_option", "parent", "save", "reload", "new_shop", "new_bank", "close", "confirm", "cancel", "pick_item", "select", "bank_to_categories", "bank_to_flat", "bank_upgrade", "conditions_upgrade", "customize", "reset_defaults", "load_server_state")
         for (language in listOf("fr_fr", "en_us")) {
             val project = Path.of(System.getProperty("commandshops.projectDir", "."))
             val json = JsonParser.parseString(Files.readString(project.resolve("src/main/resources/assets/cobbledollarscommandshops/lang/$language.json"))).asJsonObject

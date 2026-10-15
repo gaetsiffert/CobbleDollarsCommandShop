@@ -12,7 +12,8 @@ internal class AdminActionRow(
     private val hint: String = "",
     private val color: Int = 0xCCCCCC,
     private val actionHints: List<String> = emptyList(),
-    private val labelAboveButtons: Boolean = false
+    private val labelAboveButtons: Boolean = false,
+    private val enabled: Boolean = true
 ) : BaseUiComponent() {
     private val stacked = labelAboveButtons
     override val preferredHeight = if (stacked) 30 else 16
@@ -42,14 +43,15 @@ internal class AdminActionRow(
         ).tooltipRect
         buttons = actions.mapIndexed { index, (text, action) ->
             val rect = UiRect(nextX, bounds.y + if (stacked) 16 else 1, widths[index], 12)
-            UiChrome.drawButton(context, font, rect, text, rect.contains(mouseX, mouseY), AdminUiTheme.neutralButton)
+            UiChrome.drawButton(context, font, rect, text, enabled && rect.contains(mouseX, mouseY),
+                if (enabled) AdminUiTheme.neutralButton else AdminUiTheme.disabledButton)
             nextX = rect.right + spacing
             ActionButton(rect, action, actionHints.getOrNull(index)?.takeIf(String::isNotBlank))
         }
     }
 
     override fun mouseClicked(mouseX: Int, mouseY: Int, button: Int): Boolean {
-        if (button != 0 || !bounds.contains(mouseX, mouseY)) return false
+        if (!enabled || button != 0 || !bounds.contains(mouseX, mouseY)) return false
         val target = buttons.firstOrNull { it.rect.contains(mouseX, mouseY) } ?: return false
         target.action()
         return true
@@ -98,6 +100,35 @@ internal class AdminRemovableRow(
             removeHint?.takeIf(String::isNotBlank)?.let(Component::literal)
                 ?: Component.translatable("gui.cobbledollarscommandshops.admin.tooltip.remove_option")
         )
+        return content.tooltip(mouseX, mouseY)
+    }
+}
+
+/** Adds local validation without replacing the shared form control or its focus behavior. */
+internal class AdminValidatedRow(
+    private val content: UiComponent,
+    private val error: () -> String?
+) : BaseUiComponent() {
+    override val preferredHeight get() = content.preferredHeight + if (error() == null) 0 else 12
+    override val isFocusable get() = content.isFocusable
+    override fun layout(bounds: UiRect) {
+        this.bounds = bounds
+        content.layout(UiRect(bounds.x, bounds.y, bounds.width, content.preferredHeight))
+    }
+    override fun render(context: GuiGraphics, font: Font, mouseX: Int, mouseY: Int, delta: Float) {
+        content.render(context, font, mouseX, mouseY, delta)
+        error()?.let { context.drawString(font, font.plainSubstrByWidth(it, (bounds.width - 10).coerceAtLeast(1)),
+            bounds.x + 5, bounds.y + content.preferredHeight + 1, 0xFF7777, false) }
+    }
+    override fun wantsFocus(mouseX: Int, mouseY: Int) = content.wantsFocus(mouseX, mouseY)
+    override fun focusChanged(focused: Boolean) = content.focusChanged(focused)
+    override fun mouseClicked(mouseX: Int, mouseY: Int, button: Int) = content.mouseClicked(mouseX, mouseY, button)
+    override fun keyPressed(keyCode: Int, scanCode: Int, modifiers: Int) = content.keyPressed(keyCode, scanCode, modifiers)
+    override fun charTyped(char: Char, modifiers: Int) = content.charTyped(char, modifiers)
+    override fun tooltip(mouseX: Int, mouseY: Int): List<Component>? {
+        if (bounds.contains(mouseX, mouseY) && mouseY >= bounds.y + content.preferredHeight) {
+            return error()?.let { listOf(Component.literal(it)) }
+        }
         return content.tooltip(mouseX, mouseY)
     }
 }

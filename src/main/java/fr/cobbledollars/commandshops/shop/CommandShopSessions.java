@@ -33,6 +33,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
 public final class CommandShopSessions {
+    private static final long SESSION_UUID_MARKER = 0x4344534800008000L;
+    private static final long SESSION_UUID_MARKER_MASK = 0xffffffff0000f000L;
+    private static final long MENU_TRANSITION_GRACE_TICKS = 20L;
     private static final Map<UUID, CommandShopSessionState> ACTIVE_SESSIONS = new HashMap<>();
     private static final Map<UUID, PendingShopOpen> PENDING_SHOP_OPENS = new HashMap<>();
     private static TransactionTestHook transactionTestHook;
@@ -65,7 +68,7 @@ public final class CommandShopSessions {
         long nowMillis = System.currentTimeMillis();
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         ShopDefinition.RuntimeShopData runtimeData = shop.createRuntimeData(stockData, player, nowMillis);
-        UUID sessionUuid = UUID.randomUUID();
+        UUID sessionUuid = createSessionUuid();
         CobbleDollarsShopHolder sessionHolder = createSessionHolder(sessionUuid, runtimeData.shop());
         sessionHolder.getTradingPlayers().add(player);
 
@@ -75,6 +78,9 @@ public final class CommandShopSessions {
         }
 
         CommandShopSessionState session = new CommandShopSessionState(shop.id(), sessionUuid, shopMenu.containerId);
+        if (isViewingSessionShop(player, session)) {
+            session.setLastViewedTick(server.getTickCount());
+        }
         ACTIVE_SESSIONS.put(player.getUUID(), session);
         ShopSessionSyncService.sendFullSync(player, session, runtimeData);
         long nextRestockAtMillis = ShopSessionSyncService.syncClientShopUiState(player, session, runtimeData);
@@ -91,18 +97,30 @@ public final class CommandShopSessions {
     }
 
     public static boolean openCustomBank(ServerPlayer player, UUID merchantUuid) {
-        CommandShopSessionState session = getSession(player, merchantUuid);
+        CommandShopSessionState session = ACTIVE_SESSIONS.get(player.getUUID());
         if (session == null) {
-            return false;
+            return isCommandSessionUuid(merchantUuid);
         }
-
         MinecraftServer server = player.getServer();
+        // Consume unrelated merchant packets while viewing this custom session,
+        // otherwise the native handler can open an unrestricted fallback bank.
+        if (!session.sessionUuid().equals(merchantUuid)) {
+            return isCommandSessionUuid(merchantUuid) || isViewingSession(player, session)
+                    || (server != null && isWithinMenuTransitionGrace(server, player, session));
+        }
         if (server == null) {
-            return false;
+            return true;
+        }
+        if (!canTransitionFromSession(server, player, session)) {
+            cleanupPlayer(player.getUUID());
+            return true;
         }
 
         ShopDefinition shop = resolveSessionShop(server, player, session);
         if (shop == null) {
+            return true;
+        }
+        if (!checkBankAccess(player, session, shop)) {
             return true;
         }
 
@@ -114,6 +132,9 @@ public final class CommandShopSessions {
         CobbleDollarsShopHolder holder = createSessionHolder(session.sessionUuid(), runtimeShop);
         holder.setBankRef(new CobbleDollarsShopHolder.BankRef.Inline(runtimeBankData.bank()));
         PlayerExtensionKt.openBank(player, holder);
+        if (isViewingSessionBank(player, session)) {
+            session.setLastViewedTick(server.getTickCount());
+        }
         ShopSessionSyncService.syncClientBankConfig(player, runtimeShop, runtimeBankData);
         session.setLastSnapshot(runtimeData.sessionSnapshot());
         updateSessionRefreshState(server, player, session, shop, runtimeData, nowMillis, Long.MAX_VALUE);
@@ -121,14 +142,21 @@ public final class CommandShopSessions {
     }
 
     public static boolean reopenCustomShop(ServerPlayer player, UUID merchantUuid) {
-        CommandShopSessionState session = getSession(player, merchantUuid);
+        CommandShopSessionState session = ACTIVE_SESSIONS.get(player.getUUID());
         if (session == null) {
-            return false;
+            return isCommandSessionUuid(merchantUuid);
         }
-
         MinecraftServer server = player.getServer();
+        if (!session.sessionUuid().equals(merchantUuid)) {
+            return isCommandSessionUuid(merchantUuid) || isViewingSession(player, session)
+                    || (server != null && isWithinMenuTransitionGrace(server, player, session));
+        }
         if (server == null) {
-            return false;
+            return true;
+        }
+        if (!canTransitionFromSession(server, player, session)) {
+            cleanupPlayer(player.getUUID());
+            return true;
         }
 
         ShopDefinition shop = resolveSessionShop(server, player, session);
@@ -330,6 +358,9 @@ public final class CommandShopSessions {
         if (shop == null) {
             return;
         }
+        if (isViewingSessionBank(player, session) && !checkBankAccess(player, session)) {
+            return;
+        }
 
         PlayerShopStockData stockData = PlayerShopStockData.get(server);
         long nowMillis = System.currentTimeMillis();
@@ -400,18 +431,29 @@ public final class CommandShopSessions {
         processPendingShopOpens(server);
 
         long currentTick = server.getTickCount();
-        Iterator<Map.Entry<UUID, CommandShopSessionState>> iterator = ACTIVE_SESSIONS.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<UUID, CommandShopSessionState> entry = iterator.next();
-            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
-            if (player == null || !isViewingSession(player, entry.getValue())) {
-                iterator.remove();
+        // Refresh can revoke access and remove its session. A snapshot also lets
+        // the remaining players refresh safely after such a removal.
+        for (UUID playerUuid : ACTIVE_SESSIONS.keySet().toArray(UUID[]::new)) {
+            CommandShopSessionState session = ACTIVE_SESSIONS.get(playerUuid);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerUuid);
+            if (session == null) {
                 continue;
             }
+            if (player == null) {
+                ACTIVE_SESSIONS.remove(playerUuid);
+                continue;
+            }
+            if (!isViewingSession(player, session)) {
+                if (!isWithinMenuTransitionGrace(server, player, session)) {
+                    ACTIVE_SESSIONS.remove(playerUuid);
+                }
+                continue;
+            }
+            session.setLastViewedTick(currentTick);
 
             ResourceLocation currentDimension = player.level().dimension().location();
-            if (currentTick >= entry.getValue().nextRefreshTick()
-                    || shouldRefreshForDimensionChange(player, entry.getValue(), currentDimension)) {
+            if (currentTick >= session.nextRefreshTick()
+                    || shouldRefreshForDimensionChange(player, session, currentDimension)) {
                 refreshPlayerSession(player);
             }
         }
@@ -462,6 +504,9 @@ public final class CommandShopSessions {
 
         ShopDefinition shop = resolveSessionShop(server, player, session);
         if (shop == null) {
+            return true;
+        }
+        if (!checkBankAccess(player, session)) {
             return true;
         }
 
@@ -527,6 +572,7 @@ public final class CommandShopSessions {
         ShopDefinition shop = ShopRegistry.getShop(session.shopId());
         if (shop == null) {
             cleanupPlayer(player.getUUID());
+            player.closeContainer();
             player.sendSystemMessage(Component.translatable("cobbledollarscommandshops.system.shop_missing_after_reload", session.shopId()));
             return null;
         }
@@ -540,6 +586,47 @@ public final class CommandShopSessions {
         player.closeContainer();
         ShopFeedbackService.onShopDenied(player, accessResult.denialMessage());
         return null;
+    }
+
+    private static boolean checkBankAccess(ServerPlayer player, CommandShopSessionState session) {
+        return checkBankAccess(player, session, null);
+    }
+
+    private static boolean checkBankAccess(ServerPlayer player, CommandShopSessionState session, ShopDefinition returnShop) {
+        ShopRegistry.ShopAccessResult accessResult = ShopRegistry.evaluateBankAccess(session.shopId(), player);
+        if (accessResult.allowed()) {
+            return true;
+        }
+
+        if (isViewingSessionBank(player, session)) {
+            cleanupPlayer(player.getUUID());
+            // BankMenu.removed returns all deposited stacks via clearContainer.
+            player.closeContainer();
+        } else if (returnShop != null && player.containerMenu == player.inventoryMenu) {
+            // The native Bank button closes its shop before asking the server.
+            // Restore it before displaying the refusal so the player stays there.
+            openShop(player, returnShop);
+        }
+        ShopFeedbackService.onShopDenied(player, accessResult.denialMessage());
+        return false;
+    }
+
+    private static boolean canTransitionFromSession(MinecraftServer server, ServerPlayer player, CommandShopSessionState session) {
+        if (isViewingSession(player, session)) {
+            session.setLastViewedTick(server.getTickCount());
+            return true;
+        }
+        return isWithinMenuTransitionGrace(server, player, session);
+    }
+
+    private static boolean isWithinMenuTransitionGrace(MinecraftServer server, ServerPlayer player, CommandShopSessionState session) {
+        if (player.containerMenu != player.inventoryMenu || session.lastViewedTick() == Long.MIN_VALUE) {
+            return false;
+        }
+        // CobbleDollars closes the client shop before OpenBankPacket is sent.
+        // Keep only that brief inventory-menu gap; other containers end access.
+        long elapsedTicks = (long) server.getTickCount() - session.lastViewedTick();
+        return elapsedTicks >= 0L && elapsedTicks <= MENU_TRANSITION_GRACE_TICKS;
     }
 
     private static boolean isViewingSession(ServerPlayer player, CommandShopSessionState session) {
@@ -667,12 +754,16 @@ public final class CommandShopSessions {
         throw new IllegalStateException("Player is no longer viewing a CobbleDollars bank.");
     }
 
-    private static CommandShopSessionState getSession(ServerPlayer player, UUID merchantUuid) {
-        CommandShopSessionState session = ACTIVE_SESSIONS.get(player.getUUID());
-        if (session == null || !session.sessionUuid().equals(merchantUuid)) {
-            return null;
-        }
-        return session;
+    private static UUID createSessionUuid() {
+        UUID random = UUID.randomUUID();
+        return new UUID((random.getMostSignificantBits() & ~SESSION_UUID_MARKER_MASK) | SESSION_UUID_MARKER,
+                random.getLeastSignificantBits());
+    }
+
+    private static boolean isCommandSessionUuid(UUID merchantUuid) {
+        // Recognize late packets after cleanup without retaining retired sessions.
+        // Native holders use v4 UUIDs; these keep 90 random bits and a CDSH/v8 marker.
+        return (merchantUuid.getMostSignificantBits() & SESSION_UUID_MARKER_MASK) == SESSION_UUID_MARKER;
     }
 
     private static CobbleDollarsShopHolder createSessionHolder(UUID merchantUuid, Shop runtimeShop) {

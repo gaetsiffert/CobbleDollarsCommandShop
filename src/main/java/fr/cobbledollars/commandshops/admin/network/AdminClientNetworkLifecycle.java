@@ -14,6 +14,11 @@ public final class AdminClientNetworkLifecycle {
     }
 
     @SubscribeEvent
+    public static void onLogin(ClientPlayerNetworkEvent.LoggingIn event) {
+        AdminNetwork.beginClientConnection();
+    }
+
+    @SubscribeEvent
     public static void onDisconnect(ClientPlayerNetworkEvent.LoggingOut event) {
         AdminNetwork.clearClientState();
     }

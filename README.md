@@ -95,6 +95,11 @@ reordering and removing entries; shops and local banks can also be created or
 deleted. Legacy bank formats are editable and can be converted to expose bank
 conditions and categories.
 
+Shop and bank access rules can be ordered and given individual denial messages.
+Only the first failed rule's message is shown. The editor can convert legacy
+condition objects while preserving their logic; category and offer conditions
+continue to filter visibility.
+
 Edits remain drafts until **Save**. Saving validates the complete configuration
 on the server, checks for changes made since the editor loaded, writes the files
 and reloads the active settings and shop sessions. Validation failures preserve
@@ -102,6 +107,11 @@ the draft. **Reload** reads the current server files and asks before discarding
 unsaved changes. Permission level 2 is checked for all administrative transfers.
 Other players can continue using the mod without installing its optional client
 layer. The interface is available in English and French.
+
+Inherited feedback settings show their effective defaults and can be customized
+or reset explicitly. Sound previews play locally from the unsaved draft. Basic
+field errors are shown before saving, and late server replies never silently
+replace newer edits; their returned state can be loaded explicitly.
 
 Component provenance and client verification are documented in
 [`docs/ADMIN_UI_COMPONENTS.md`](docs/ADMIN_UI_COMPONENTS.md).

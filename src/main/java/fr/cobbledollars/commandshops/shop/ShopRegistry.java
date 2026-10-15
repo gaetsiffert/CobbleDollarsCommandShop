@@ -64,10 +64,17 @@ public final class ShopRegistry {
         if (!visibilityStatus.enabled()) {
             return ShopAccessResult.deny(visibilityStatus.denialMessage(shop.id()));
         }
-        if (!shop.isAccessibleBy(player)) {
-            return ShopAccessResult.deny(defaultDenyMessage(shop));
+        ConditionSet.Failure failure = shop.conditions().firstFailure(player);
+        if (failure != null) {
+            return ShopAccessResult.deny(failure.message(shop.denyMessage()));
         }
         return ShopAccessResult.allow();
+    }
+
+    public static ShopAccessResult evaluateBankAccess(String shopId, ServerPlayer player) {
+        BankDefinition bank = getBankDefinition(shopId);
+        ConditionSet.Failure failure = bank.conditions().firstFailure(player);
+        return failure == null ? ShopAccessResult.allow() : ShopAccessResult.deny(failure.message(bank.denyMessage()));
     }
 
     public static Path getShopDirectory() {
@@ -135,10 +142,4 @@ public final class ShopRegistry {
         }
     }
 
-    private static Component defaultDenyMessage(ShopDefinition shop) {
-        if (shop.denyMessage() == null || shop.denyMessage().isBlank()) {
-            return Component.translatable("cobbledollarscommandshops.feedback.shop_denied.default");
-        }
-        return Component.literal(shop.denyMessage());
-    }
 }

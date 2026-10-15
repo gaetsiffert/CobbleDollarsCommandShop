@@ -16,6 +16,7 @@ import net.minecraft.sounds.SoundEvents
 import net.minecraft.world.item.Item
 import java.math.BigDecimal
 import java.util.Locale
+import java.util.UUID
 
 class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("gui.cobbledollarscommandshops.admin.title")) {
     private var document = AdminEditorDocument(snapshot)
@@ -30,6 +31,9 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     private var statusError = false
     private var pending = false
     private var pendingSince = 0L
+    private var pendingOperation: UUID? = null
+    private var deferredSnapshot: String? = null
+    private var validationIssues = emptyList<AdminDraftIssue>()
     private var lastDirtyCount = 0
     private data class ScreenAction(val rect: UiRect, val action: () -> Unit, val hint: String?)
     private data class FooterAction(val label: String, val action: () -> Unit, val hint: String)
@@ -51,11 +55,14 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (net.minecraft.client.resources.language.I18n.exists("gui.cobbledollarscommandshops.admin.default.$key")) tr("default.$key")
         else AdminConfigSchema.defaultText(key)
     private fun fieldLabel(key: String): String {
-        val translation = "gui.cobbledollarscommandshops.admin.field.$key"
+        val labelKey = if (key == "deny_message" && segments.isEmpty()) "deny_message_fallback" else key
+        val translation = "gui.cobbledollarscommandshops.admin.field.$labelKey"
         return if (net.minecraft.client.resources.language.I18n.exists(translation)) Component.translatable(translation).string else key
     }
     private fun help(key: String): String {
         val contextualKey = when {
+            key == "deny_message" && segments.size >= 2 && segments[segments.size - 2] == "conditions" -> "condition_deny_message"
+            key == "conditions" && segments.isNotEmpty() && segments != listOf("conditions") -> "visibility_conditions"
             key == "price" && selectedFile.endsWith("bank.json") -> "bank_price"
             key == "count" && "rewards" in segments -> "reward_count"
             key == "id" && segments.lastOrNull() == "sound" -> "sound_id"
@@ -81,6 +88,8 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (!document.files.has(selectedFile)) selectedFile = visibleFiles().firstOrNull() ?: document.files.keySet().sorted().first()
         segments.clear()
         pending = false
+        pendingOperation = null
+        deferredSnapshot = null
         if (statusError) { status = ""; statusError = false }
         rebuildForm()
     }
@@ -92,6 +101,28 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         status = if (success) tr("saved") else message
     }
 
+    // Save/reload commit focus before starting. Receiving an old reply must not interrupt typing.
+    fun currentDraft(): String = document.serialize()
+
+    fun completeOperation(id: UUID) {
+        if (pendingOperation == id) { pending = false; pendingOperation = null }
+    }
+
+    fun acceptDeferredSnapshot(json: String, success: Boolean, message: String) {
+        deferredSnapshot = json
+        if (!pending) { status = message.ifBlank { tr("late_snapshot") }; statusError = !success }
+    }
+
+    fun acceptDeferredResult(success: Boolean, message: String) {
+        if (!pending) { status = message; statusError = !success }
+    }
+
+    override fun removed() {
+        form.clearFocus(); searchForm.clearFocus()
+        AdminClientBridge.detach(this)
+        super.removed()
+    }
+
     override fun isPauseScreen() = false
 
     override fun tick() {
@@ -101,6 +132,8 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             it.jumping = false; it.shiftKeyDown = false
         }
         if (pending && System.currentTimeMillis() - pendingSince > 45000) {
+            pendingOperation?.let { AdminClientBridge.expireOperation(this, it) }
+            pendingOperation = null
             pending = false; statusError = true; status = tr("timeout")
         }
         lastDirtyCount = document.dirtyCount
@@ -115,14 +148,12 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         matchesTab && path.contains(search, ignoreCase = true)
     }.sorted()
 
-    private fun selectedSchema(): ConfigSchema {
-        var schema = AdminConfigSchema.forFile(selectedFile, document.files.get(selectedFile))
-        segments.forEach { schema = schema.element ?: schema.fields[it]?.schema ?: ConfigSchema("{}") }
-        return schema
-    }
+    private fun selectedSchema(): ConfigSchema =
+        AdminConfigSchema.atPath(selectedFile, document.files.get(selectedFile), segments)
 
     private fun rebuildForm() {
         form.clearFocus()
+        refreshValidation()
         if (!document.files.has(selectedFile)) { form = UiForm(emptyList()); return }
         val node = document.resolve(selectedFile, segments)
         val schema = selectedSchema()
@@ -130,7 +161,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (segments.isNotEmpty()) rows += AdminActionRow(tr("parent"), listOf("←" to { segments.removeLast(); rebuildForm() }), actionHints = hints("parent"))
         val nodeName = if (node.isJsonObject) listOf("name", "id", "objective", "item", "stack", "tag", "mod")
             .firstNotNullOfOrNull { node.asJsonObject.get(it)?.takeIf(JsonElement::isJsonPrimitive)?.asString } else null
-        val sectionHelp = segments.lastOrNull()?.takeUnless { it.toIntOrNull() != null }
+        val sectionHelp = if (AdminConfigSchema.isConditionRule(schema)) "condition_rule" else segments.lastOrNull()?.takeUnless { it.toIntOrNull() != null }
             ?: if (segments.isNotEmpty()) "entry" else when {
                 selectedFile.endsWith("/shop.json") -> "shop"
                 selectedFile.endsWith("bank.json") -> "bank"
@@ -138,6 +169,21 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             }
         rows += UiSectionHeaderComponent(nodeName ?: segments.lastOrNull()?.let { if (it.toIntOrNull() != null) "${tr("entry")} ${it.toInt() + 1}" else fieldLabel(it) } ?: selectedFile, 0xFFCC88,
             tooltipProvider = { listOf(Component.literal(help(sectionHelp))) })
+        if (validationIssues.any { it.file == selectedFile && it.segments == segments }) {
+            val file = selectedFile
+            val path = segments.toList()
+            rows += AdminValidatedRow(UiSpacerComponent(0)) {
+                validationIssues.firstOrNull { it.file == file && it.segments == path }?.let { tr(it.key, *it.args.toTypedArray()) }
+            }
+        }
+        if (selectedFile == "feedback.json" && segments.firstOrNull() in AdminFeedbackSettings.eventKeys
+            && (segments.size == 1 || segments == listOf(segments.first(), "sound"))) {
+            val event = segments.first()
+            val noSound = runCatching { AdminFeedbackSettings.effectiveField(feedbackRoot(), event, "sound").isJsonNull }.getOrDefault(false)
+            val hint = tr("help.sound_preview") + if (noSound) "\n" + tr("preview.no_sound") else ""
+            rows += AdminActionRow(tr("sound_preview"), listOf(tr("listen") to { previewSound(event) }), hint,
+                actionHints = listOf(hint), enabled = !noSound)
+        }
         if (node.isJsonArray) {
             if (segments.isEmpty()) rows += AdminActionRow(tr("bank_format"), listOf(tr("bank_upgrade") to {
                 document.files.add(selectedFile, JsonObject().apply { add("offers", node) }); rebuildForm()
@@ -145,8 +191,72 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             buildArray(rows, node.asJsonArray, schema)
         }
         else if (node.isJsonObject) buildObject(rows, node.asJsonObject, schema)
-        else rows += primitive(tr("value"), schema, { node }, { replacement -> replaceCurrent(replacement); rebuildForm() }, "value")
+        else rows += primitive(tr("value"), schema, { node }, { replacement -> replaceCurrent(replacement); rebuildForm() }, "value", segments.toList())
         form = UiForm(rows, gap = 3)
+    }
+
+    private fun refreshValidation() { validationIssues = AdminDraftValidation.validate(document.files) }
+
+    private fun validated(component: UiComponent, path: List<String>): UiComponent {
+        val file = selectedFile
+        return AdminValidatedRow(component) {
+            validationIssues.firstOrNull { it.file == file && it.segments.take(path.size) == path }
+                ?.let { tr(it.key, *it.args.toTypedArray()) }
+        }
+    }
+
+    private fun feedbackRoot() = document.files.getAsJsonObject("feedback.json")
+
+    private fun isInheritedFeedbackField(key: String): Boolean = selectedFile == "feedback.json" && when {
+        segments.isEmpty() -> key in AdminFeedbackSettings.eventKeys
+        segments.size == 1 -> key in listOf("channels", "sound")
+        segments.size == 2 && segments[1] == "sound" -> key in listOf("volume", "pitch")
+        else -> false
+    }
+
+    private fun feedbackSummary(value: JsonElement): String = when {
+        value.isJsonNull -> tr("option.none")
+        value.isJsonArray -> value.asJsonArray.joinToString(", ") { optionLabel(it.asString) }.ifEmpty { tr("option.none") }
+        value.isJsonObject -> value.asJsonObject.entrySet().joinToString(", ") { (key, entry) -> "${fieldLabel(key)}: ${feedbackSummary(entry)}" }
+        else -> value.asString
+    }
+
+    private fun addInheritedFeedback(rows: MutableList<UiComponent>, key: String) {
+        val event = segments.firstOrNull() ?: key
+        val path = if (segments.isEmpty()) emptyList() else segments.drop(1) + key
+        val effective = if (path.isEmpty()) AdminFeedbackSettings.effectiveEvent(feedbackRoot(), event)
+            else AdminFeedbackSettings.effectiveField(feedbackRoot(), event, path)
+        rows += AdminActionRow(fieldLabel(key), listOf(tr("customize") to {
+            if (path.isEmpty()) {
+                AdminFeedbackSettings.customizeEvent(feedbackRoot(), event)
+                segments += key
+            } else AdminFeedbackSettings.customizeField(feedbackRoot(), event, path)
+            rebuildForm()
+        }), help(key) + "\n" + tr("defaults_used"), 0x888888, actionHints = listOf(tr("tooltip.customize")))
+        fun summary(label: String, value: JsonElement) {
+            val text = feedbackSummary(value)
+            rows += UiTextFieldComponent(label, LambdaFieldBinding("inherited.$key", { text }, {}),
+                editable = false, valueColor = 0x888888,
+                tooltipProvider = { listOf(Component.literal(tr("defaults_used") + "\n" + text)) })
+        }
+        if (path.isEmpty()) {
+            rows += AdminActionRow(tr("defaults_used"), emptyList(), tr("tooltip.customize"), 0x888888)
+            val data = effective.asJsonObject
+            summary(fieldLabel("channels"), data.get("channels"))
+            val sound = data.get("sound")
+            summary(fieldLabel("sound"), if (sound.isJsonObject) sound.asJsonObject.get("id") else sound)
+            if (sound.isJsonObject) {
+                summary(fieldLabel("volume"), sound.asJsonObject.get("volume"))
+                summary(fieldLabel("pitch"), sound.asJsonObject.get("pitch"))
+            }
+        } else summary(tr("defaults_used"), effective)
+    }
+
+    private fun previewSound(event: String) {
+        form.clearFocus()
+        val result = AdminFeedbackPreview.play(feedbackRoot(), event, minecraft ?: return)
+        statusError = result.status != AdminFeedbackPreview.PreviewStatus.PLAYED
+        status = tr("preview.${result.status.name.lowercase(Locale.ROOT)}", result.soundId ?: "")
     }
 
     private fun replaceCurrent(value: JsonElement) {
@@ -157,11 +267,20 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     }
 
     private fun buildObject(rows: MutableList<UiComponent>, node: JsonObject, schema: ConfigSchema) {
+        if (AdminConfigSchema.isConditions(schema)) rows += AdminActionRow(tr("condition_order"), listOf(tr("conditions_upgrade") to {
+            runCatching { AdminConfigSchema.orderedConditions(node) }.onSuccess(::replaceCurrent).onFailure {
+                statusError = true; status = tr("condition_conversion_failed")
+            }
+            rebuildForm()
+        }), help("conditions_upgrade"), actionHints = hints("conditions_upgrade"), labelAboveButtons = true)
         if (schema.variants.isNotEmpty()) {
             val active = schema.variants.firstOrNull(node::has) ?: schema.variants.first()
-            rows += select(tr("match_type"), active, schema.variants, "match_type") { selected ->
-                schema.variants.forEach(node::remove)
-                node.add(selected, schema.fields.getValue(selected).schema.newValue(::defaultText)); rebuildForm()
+            val selector = if (AdminConfigSchema.isConditionRule(schema)) "condition_type" else "match_type"
+            rows += select(tr(selector), active, schema.variants, selector) { selected ->
+                if (selected != active) {
+                    schema.variants.forEach(node::remove)
+                    node.add(selected, schema.fields.getValue(selected).schema.newValue(::defaultText)); rebuildForm()
+                }
             }
         }
         val bankAction = if (node.has("offers")) "bank_to_categories" else "bank_to_flat"
@@ -184,43 +303,45 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             val value = node.get(key)
             val label = fieldLabel(key)
             if (value == null || (value.isJsonNull && key != "sound")) {
-                rows += AdminActionRow(label, listOf(tr("add") to {
+                if (isInheritedFeedbackField(key)) { addInheritedFeedback(rows, key); return@forEach }
+                rows += validated(AdminActionRow(label, listOf(tr("add") to {
                     node.add(key, spec.schema.newValue(::defaultText))
                     if (key == "restock" && node.get("stock")?.let { runCatching { it.asInt }.getOrDefault(-1) < 0 } != false) node.addProperty("stock", 64)
                     rebuildForm()
-                }), help(key) + "\n" + tr("optional_hint", label), 0x888888, actionHints = hints("add"))
+                }), help(key) + "\n" + tr("optional_hint", label), 0x888888, actionHints = hints("add")), segments.toList() + key)
             } else {
                 if (key == "sound") {
                     val mode = if (value.isJsonNull) "none" else if (value.isJsonObject) "detailed" else "simple"
                     rows += select(tr("sound_format"), mode, listOf("none", "simple", "detailed"), "sound_format") { selected ->
-                        node.add(key, when (selected) {
-                            "none" -> JsonNull.INSTANCE
-                            "simple" -> JsonPrimitive(if (value.isJsonObject) value.asJsonObject.get("id")?.asString ?: "minecraft:entity.experience_orb.pickup" else if (value.isJsonPrimitive) value.asString else spec.schema.newValue().asJsonObject.get("id").asString)
-                            else -> spec.schema.newValue().also {
-                                if (value.isJsonPrimitive) it.asJsonObject.add("id", value.deepCopy())
-                            }
-                        }); rebuildForm()
+                        if (selected != mode && AdminFeedbackSettings.changeSoundFormat(feedbackRoot(), segments.first(), selected)) rebuildForm()
                     }
                 }
                 val remove = { node.remove(key); rebuildForm() }
+                val resetDefault = isInheritedFeedbackField(key)
+                val removeCaption = if (resetDefault) tr("reset_defaults") else "−"
+                val removeTooltip = if (resetDefault) tr("tooltip.reset_defaults") else tr("tooltip.remove_option")
                 if (value.isJsonObject || value.isJsonArray) {
                     val actions = mutableListOf<Pair<String, () -> Unit>>(tr("edit") to { segments += key; rebuildForm() })
-                    if (!spec.required && key !in schema.variants) actions += "−" to remove
-                    rows += AdminActionRow("$label (${if (value.isJsonArray) value.asJsonArray.size() else value.asJsonObject.size()})", actions, help(key),
-                        actionHints = if (actions.size > 1) hints("edit", "remove_option") else hints("edit"))
+                    if (!spec.required && key !in schema.variants) actions += removeCaption to remove
+                    rows += validated(AdminActionRow("$label (${if (value.isJsonArray) value.asJsonArray.size() else value.asJsonObject.size()})", actions, help(key),
+                        actionHints = if (actions.size > 1) listOf(tr("tooltip.edit"), removeTooltip) else hints("edit")), segments.toList() + key)
                 } else if (value.isJsonNull) {
-                    rows += AdminActionRow(label, listOf("−" to remove), help(key), actionHints = hints("remove_option"))
+                    rows += AdminActionRow(label, listOf(removeCaption to remove), help(key), actionHints = listOf(removeTooltip))
                 } else {
                     val component = if (key == "type" && schema === AdminConfigSchema.restock) {
                         select(label, value.asString, spec.schema.choices, key) { selected ->
-                            node.addProperty("type", selected)
-                            listOf("amount", "every_seconds", "hour", "minute", "time_zone").forEach(node::remove)
-                            if (selected == "interval") { node.addProperty("amount", 1); node.addProperty("every_seconds", 3600) }
-                            else { node.addProperty("hour", 0); node.addProperty("minute", 0); node.addProperty("time_zone", "Europe/Paris") }
-                            rebuildForm()
+                            if (selected != value.asString) {
+                                node.addProperty("type", selected)
+                                listOf("amount", "every_seconds", "hour", "minute", "time_zone").forEach(node::remove)
+                                if (selected == "interval") { node.addProperty("amount", 1); node.addProperty("every_seconds", 3600) }
+                                else { node.addProperty("hour", 0); node.addProperty("minute", 0); node.addProperty("time_zone", "Europe/Paris") }
+                                rebuildForm()
+                            }
                         }
                     } else primitive(label, spec.schema, { node.get(key) }, { node.add(key, it) }, key)
-                    rows += if (!spec.required && key !in schema.variants) AdminRemovableRow(component, remove) else component
+                    rows += if (!resetDefault && !spec.required && key !in schema.variants) AdminRemovableRow(component, remove, removeTooltip) else component
+                    if (resetDefault) rows += AdminActionRow(label, listOf(tr("reset_defaults") to remove),
+                        help(key), actionHints = listOf(removeTooltip))
                 }
             }
         }
@@ -228,29 +349,45 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
 
     private fun buildArray(rows: MutableList<UiComponent>, array: JsonArray, schema: ConfigSchema) {
         val itemSchema = schema.element ?: ConfigSchema("\"\"")
+        val conditionList = AdminConfigSchema.isConditions(schema)
         array.forEachIndexed { index, value ->
             if (value.isJsonObject || value.isJsonArray) {
-                val name = if (value.isJsonObject) listOf("name", "id", "item", "stack", "tag", "mod", "objective")
+                val name = if (conditionList && value.isJsonObject) AdminConfigSchema.conditionTypes.firstOrNull(value.asJsonObject::has)?.let(::fieldLabel)
+                    else if (value.isJsonObject) listOf("name", "id", "item", "stack", "tag", "mod", "objective")
                     .firstNotNullOfOrNull { value.asJsonObject.get(it)?.takeIf(JsonElement::isJsonPrimitive)?.asString } else null
-                rows += AdminActionRow("${index + 1}. ${name ?: tr("entry")}", listOf(
+                rows += validated(AdminActionRow("${index + 1}. ${name ?: tr("entry")}", listOf(
                     tr("edit") to { segments += index.toString(); rebuildForm() },
                     "↑" to { move(array, index, -1) }, "↓" to { move(array, index, 1) },
                     "+" to { array.add(uniqueOfferIds(value.deepCopy())); rebuildForm() },
-                    "−" to { array.remove(index); rebuildForm() }
-                ), help("entry"), actionHints = hints("edit", "move_up", "move_down", "duplicate", "delete"))
+                    "−" to { removeArrayEntry(array, index) }
+                ), help(if (conditionList) "condition_rule" else "entry"), actionHints = hints("edit", "move_up", "move_down", "duplicate", "delete")), segments.toList() + index.toString())
             } else {
-                rows += AdminRemovableRow(primitive("${index + 1}", itemSchema, { array[index] }, { array.set(index, it) }, segments.lastOrNull() ?: ""), {
-                    array.remove(index); rebuildForm()
+                rows += AdminRemovableRow(primitive("${index + 1}", itemSchema, { array[index] }, { array.set(index, it) }, segments.lastOrNull() ?: "", segments.toList() + index.toString()), {
+                    removeArrayEntry(array, index)
                 }, tr("tooltip.delete"))
             }
         }
-        rows += AdminActionRow(tr("entry"), listOf(tr("add") to {
+        rows += AdminActionRow(tr(if (conditionList) "condition" else "entry"), listOf(tr("add") to {
             val value = itemSchema.newValue(::defaultText)
             array.add(uniqueOfferIds(value)); rebuildForm()
-        }), help("entry"), actionHints = hints("add"))
+        }), help(if (conditionList) "condition_rule" else "entry"), actionHints = hints("add"))
     }
 
     private fun uniqueOfferIds(value: JsonElement) = document.uniqueOfferIds(selectedFile, value)
+
+    private fun removeArrayEntry(array: JsonArray, index: Int) {
+        val rulePath = segments.dropLast(1)
+        val ruleSchema = if (rulePath.isNotEmpty()) AdminConfigSchema.atPath(selectedFile, document.files.get(selectedFile), rulePath) else null
+        if (array.size() == 1 && ruleSchema != null && AdminConfigSchema.isConditionRule(ruleSchema)) {
+            val rulesPath = rulePath.dropLast(1)
+            val rules = document.resolve(selectedFile, rulesPath).asJsonArray
+            val ruleIndex = rulePath.last().toInt()
+            confirm(tr("confirm_delete_condition")) {
+                rules.remove(ruleIndex)
+                segments.clear(); segments.addAll(rulesPath); rebuildForm()
+            }
+        } else { array.remove(index); rebuildForm() }
+    }
 
     private fun move(array: JsonArray, index: Int, delta: Int) {
         val target = index + delta
@@ -258,22 +395,24 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         val value = array[index]; array.set(index, array[target]); array.set(target, value); rebuildForm()
     }
 
-    private fun primitive(label: String, schema: ConfigSchema, getter: () -> JsonElement, setter: (JsonElement) -> Unit, key: String): UiComponent {
+    private fun primitive(label: String, schema: ConfigSchema, getter: () -> JsonElement, setter: (JsonElement) -> Unit, key: String,
+                          path: List<String> = segments.toList() + key): UiComponent {
         val initial = getter()
-        if (initial.isJsonPrimitive && initial.asJsonPrimitive.isBoolean) return UiToggleComponent(label,
-            LambdaFieldBinding(key, { getter().asBoolean }, { setter(JsonPrimitive(it)) }), tr("on"), tr("off"),
-            tooltipProvider = { listOf(Component.literal(help(key))) })
+        if (initial.isJsonPrimitive && initial.asJsonPrimitive.isBoolean) return validated(UiToggleComponent(label,
+            LambdaFieldBinding(key, { getter().asBoolean }, { setter(JsonPrimitive(it)); refreshValidation() }), tr("on"), tr("off"),
+            tooltipProvider = { listOf(Component.literal(help(key))) }), path)
         val binding = LambdaFieldBinding(key, { getter().asString }, { raw: String ->
             val numeric = schema.newValue().let { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
             setter(if (numeric) runCatching { JsonPrimitive(BigDecimal(raw)) }.getOrElse { JsonPrimitive(raw) } else JsonPrimitive(raw))
+            refreshValidation()
         })
-        if (schema.choices.isNotEmpty()) return UiSelectComponent(label, binding, displayText = ::optionLabel, onRequestSelection = { rect ->
+        if (schema.choices.isNotEmpty()) return validated(UiSelectComponent(label, binding, displayText = ::optionLabel, onRequestSelection = { rect ->
             openDropdown(key, schema.choices, setOf(binding.get()), false, rect) { values -> values.firstOrNull()?.let(binding::set) }
-        }, tooltipProvider = { listOf(Component.literal(help(key))) })
-        if (key == "item") return UiItemFieldComponent(label, binding, displayText = { it }, onRequestPicker = {
+        }, tooltipProvider = { listOf(Component.literal(help(key))) }), path)
+        if (key == "item") return validated(UiItemFieldComponent(label, binding, displayText = { it }, onRequestPicker = {
             form.clearFocus(); itemSearch.reset(""); itemScroll = 0; itemSearchFocused = true; updateItemResults(); itemApply = binding::set
-        }, tooltipProvider = { listOf(Component.literal(help(key))) })
-        return UiTextFieldComponent(label, binding, tooltipProvider = { listOf(Component.literal(help(key))) })
+        }, tooltipProvider = { listOf(Component.literal(help(key))) }), path)
+        return validated(UiTextFieldComponent(label, binding, tooltipProvider = { listOf(Component.literal(help(key))) }), path)
     }
 
     private fun select(label: String, value: String, options: List<String>, helpKey: String, apply: (String) -> Unit): UiComponent =
@@ -282,6 +421,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         }, tooltipProvider = { listOf(Component.literal(help(helpKey))) })
 
     private fun optionLabel(value: String): String {
+        if (value in AdminConfigSchema.conditionTypes) return fieldLabel(value)
         val key = "gui.cobbledollarscommandshops.admin.option.$value"
         return if (net.minecraft.client.resources.language.I18n.exists(key)) Component.translatable(key).string else value
     }
@@ -380,8 +520,17 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     private fun selectFile(path: String) { form.clearFocus(); selectedFile = path; segments.clear(); rebuildForm() }
     private fun footerActions(): List<FooterAction> {
         val actions = mutableListOf(FooterAction(tr("save", lastDirtyCount), ::save, tr("tooltip.save")), FooterAction(tr("reload"), {
-            confirmDiscard { pending = true; pendingSince = System.currentTimeMillis(); AdminNetwork.requestSnapshot() }
+            confirmDiscard {
+                val draft = currentDraft()
+                pending = true; pendingSince = System.currentTimeMillis()
+                val id = AdminClientBridge.beginOperation(this, draft, false)
+                pendingOperation = id
+                AdminNetwork.requestSnapshot(id)
+            }
         }, tr("tooltip.reload")))
+        deferredSnapshot?.let { snapshot -> actions += FooterAction(tr("load_server_state"), {
+            confirmDiscard { acceptSnapshot(snapshot) }
+        }, tr("tooltip.load_server_state")) }
         if (tab == 0) {
             actions += FooterAction(tr("new"), { newShop(false) }, tr("tooltip.new_shop"))
             if (selectedFile.endsWith("/shop.json")) actions += FooterAction(tr("duplicate"), { newShop(true) }, tr("tooltip.duplicate"))
@@ -397,8 +546,20 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     }
     private fun save() {
         form.clearFocus(); searchForm.clearFocus()
+        refreshValidation()
+        validationIssues.firstOrNull()?.let { issue ->
+            selectedFile = issue.file
+            tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 2 }
+            segments.clear(); segments.addAll(issue.segments.dropLast(1))
+            statusError = true; status = tr("validation.save_blocked", issue.file, tr(issue.key, *issue.args.toTypedArray()))
+            rebuildForm()
+            return
+        }
+        val draft = document.serialize()
         pending = true; pendingSince = System.currentTimeMillis(); status = ""; statusError = false
-        AdminNetwork.save(document.serialize())
+        val id = AdminClientBridge.beginOperation(this, draft, true)
+        pendingOperation = id
+        AdminNetwork.save(draft, id)
     }
     private fun newShop(duplicate: Boolean) {
         var id = ""

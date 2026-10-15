@@ -1,12 +1,15 @@
 package fr.cobbledollars.commandshops.shop;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -104,6 +107,45 @@ class BankFilesParsingTest {
                 "Field 'count' is not supported in bank offers anymore. Remove it from bank file '" + bankFile + "', offer #0.",
                 exception.getMessage()
         );
+    }
+
+    @Test
+    void loadBankFilePreservesOrderedAccessRulesAndFallbackMessage() throws IOException {
+        Path bankFile = writeBankJson("""
+                {
+                  "deny_message": "Legacy bank access message",
+                  "conditions": [
+                    { "dimensions_any": ["minecraft:the_nether"], "deny_message": "Visit the Nether bank." },
+                    { "player_tags_all": ["bank_permit"], "deny_message": "You need a banking permit." }
+                  ],
+                  "categories": []
+                }
+                """);
+
+        BankDefinition bank = BankFiles.loadBankFile(bankFile, TestRegistryAccess.provider());
+
+        assertEquals("Legacy bank access message", bank.denyMessage());
+        JsonObject serialized = new JsonObject();
+        ConditionSet.writeOptional(serialized, bank.conditions());
+        assertEquals(JsonParser.parseString(Files.readString(bankFile)).getAsJsonObject().get("conditions"), serialized.get("conditions"));
+    }
+
+    @Test
+    void loadBankFileTreatsBlankFallbackMessageAsUnset() throws IOException {
+        BankDefinition bank = BankFiles.loadBankFile(
+                writeBankJson("{\"deny_message\": \"   \", \"offers\": []}"), TestRegistryAccess.provider());
+
+        assertNull(bank.denyMessage());
+    }
+
+    @Test
+    void loadBankFileRejectsNonStringFallbackMessage() throws IOException {
+        Path bankFile = writeBankJson("{\"deny_message\": 12, \"offers\": []}");
+
+        IOException exception = assertThrows(IOException.class,
+                () -> BankFiles.loadBankFile(bankFile, TestRegistryAccess.provider()));
+
+        assertEquals("Field 'deny_message' in bank file '" + bankFile + "' must be a string.", exception.getMessage());
     }
 
     private Path writeBankJson(String json) throws IOException {
