@@ -21,7 +21,7 @@ import java.util.UUID
 class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("gui.cobbledollarscommandshops.admin.title")) {
     private var document = AdminEditorDocument(snapshot)
     private var selectedFile = document.files.keySet().sorted().firstOrNull { it.endsWith("/shop.json") } ?: "audit.json"
-    private var tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 2 }
+    private var tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 3 }
     private val segments = mutableListOf<String>()
     private var form = UiForm(emptyList())
     private var fileScroll = 0
@@ -35,6 +35,18 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     private var deferredSnapshot: String? = null
     private var validationIssues = emptyList<AdminDraftIssue>()
     private var lastDirtyCount = 0
+    private var liveOverview: JsonObject? = null
+    private var liveStock: JsonObject? = null
+    private var liveOperation: UUID? = null
+    private var liveAction = ""
+    private var livePending = false
+    private var livePendingSince = 0L
+    private var liveRefreshRequired = false
+    private var liveFormDirty = false
+    private var stockTarget = ""
+    private var stockAllOnline = false
+    private var stockPage = 0
+    private val stockValues = mutableMapOf<String, String>()
     private data class ScreenAction(val rect: UiRect, val action: () -> Unit, val hint: String?)
     private data class FooterAction(val label: String, val action: () -> Unit, val hint: String)
     private val clickActions = mutableListOf<ScreenAction>()
@@ -81,6 +93,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             search = it; fileScroll = 0
         }))))
         rebuildForm()
+        if (liveOverview == null && !livePending && AdminLiveClient.supported()) requestLive("overview")
     }
 
     fun acceptSnapshot(json: String) {
@@ -90,8 +103,10 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         pending = false
         pendingOperation = null
         deferredSnapshot = null
+        invalidateLiveState()
         if (statusError) { status = ""; statusError = false }
         rebuildForm()
+        if (!livePending && AdminLiveClient.supported()) requestLive("overview")
     }
 
     fun acceptResult(success: Boolean, message: String) {
@@ -111,6 +126,8 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     fun acceptDeferredSnapshot(json: String, success: Boolean, message: String) {
         deferredSnapshot = json
         if (!pending) { status = message.ifBlank { tr("late_snapshot") }; statusError = !success }
+        invalidateLiveState()
+        if (AdminLiveClient.supported()) requestLive("overview")
     }
 
     fun acceptDeferredResult(success: Boolean, message: String) {
@@ -137,16 +154,31 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             pending = false; statusError = true; status = tr("timeout")
         }
         lastDirtyCount = document.dirtyCount
+        if (livePending && System.currentTimeMillis() - livePendingSince > 45000) {
+            AdminLiveClient.invalidate(this)
+            liveOperation = null; livePending = false; liveRefreshRequired = true
+            statusError = true; status = Component.translatable("cobbledollarscommandshops.admin.message.live.timeout").string
+            liveFormDirty = true
+        }
+        // A runtime reply must not commit or interrupt a configuration field being edited.
+        if (liveFormDirty && !form.hasFocusedComponent && modal == null && dropdownState == null && itemApply == null) {
+            liveFormDirty = false; rebuildForm()
+        }
     }
 
-    private fun visibleFiles(): List<String> = document.files.keySet().filter { path ->
+    private fun visibleFiles(): List<String> {
+        if (tab == 2 && liveOverview != null) return liveOverview!!.getAsJsonArray("shops")
+            .map { "shops/${it.asJsonObject.get("id").asString}/shop.json" }
+            .filter { it.contains(search, ignoreCase = true) }.sorted()
+        return document.files.keySet().filter { path ->
         val matchesTab = when (tab) {
-            0 -> path.endsWith("/shop.json")
+            0, 2 -> path.endsWith("/shop.json")
             1 -> path == "global_bank.json" || path.endsWith("/bank.json")
             else -> path == "audit.json" || path == "feedback.json"
         }
         matchesTab && path.contains(search, ignoreCase = true)
-    }.sorted()
+        }.sorted()
+    }
 
     private fun selectedSchema(): ConfigSchema =
         AdminConfigSchema.atPath(selectedFile, document.files.get(selectedFile), segments)
@@ -154,6 +186,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     private fun rebuildForm() {
         form.clearFocus()
         refreshValidation()
+        if (tab == 2) { buildStockForm(); return }
         if (!document.files.has(selectedFile)) { form = UiForm(emptyList()); return }
         val node = document.resolve(selectedFile, segments)
         val schema = selectedSchema()
@@ -169,6 +202,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             }
         rows += UiSectionHeaderComponent(nodeName ?: segments.lastOrNull()?.let { if (it.toIntOrNull() != null) "${tr("entry")} ${it.toInt() + 1}" else fieldLabel(it) } ?: selectedFile, 0xFFCC88,
             tooltipProvider = { listOf(Component.literal(help(sectionHelp))) })
+        if (tab == 0 && segments.isEmpty() && selectedFile.endsWith("/shop.json")) addVisibility(rows)
         if (validationIssues.any { it.file == selectedFile && it.segments == segments }) {
             val file = selectedFile
             val path = segments.toList()
@@ -187,7 +221,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (node.isJsonArray) {
             if (segments.isEmpty()) rows += AdminActionRow(tr("bank_format"), listOf(tr("bank_upgrade") to {
                 document.files.add(selectedFile, JsonObject().apply { add("offers", node) }); rebuildForm()
-            }), help("bank_format"), actionHints = hints("bank_upgrade"), labelAboveButtons = true)
+            }), help("bank_format"), actionHints = hints("bank_upgrade"))
             buildArray(rows, node.asJsonArray, schema)
         }
         else if (node.isJsonObject) buildObject(rows, node.asJsonObject, schema)
@@ -272,7 +306,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
                 statusError = true; status = tr("condition_conversion_failed")
             }
             rebuildForm()
-        }), help("conditions_upgrade"), actionHints = hints("conditions_upgrade"), labelAboveButtons = true)
+        }), help("conditions_upgrade"), actionHints = hints("conditions_upgrade"))
         if (schema.variants.isNotEmpty()) {
             val active = schema.variants.firstOrNull(node::has) ?: schema.variants.first()
             val selector = if (AdminConfigSchema.isConditionRule(schema)) "condition_type" else "match_type"
@@ -298,7 +332,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
                 node.remove("categories"); node.add("offers", offers)
             }
             rebuildForm()
-        }), help("bank_format"), actionHints = hints(bankAction), labelAboveButtons = true)
+        }), help("bank_format"), actionHints = hints(bankAction))
         AdminConfigSchema.visibleFields(schema, node).forEach { (key, spec) ->
             val value = node.get(key)
             val label = fieldLabel(key)
@@ -420,7 +454,215 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             openDropdown(label, options, setOf(value), false, rect) { values -> values.firstOrNull()?.let(apply) }
         }, tooltipProvider = { listOf(Component.literal(help(helpKey))) })
 
+    private fun selectedShopId(): String = selectedFile.takeIf { it.startsWith("shops/") }?.split('/')?.getOrNull(1) ?: ""
+
+    private fun invalidateLiveState() {
+        AdminLiveClient.invalidate(this)
+        liveOperation = null; livePending = false; liveRefreshRequired = true
+        liveOverview = null; liveStock = null; stockValues.clear(); liveFormDirty = true
+    }
+
+    private fun liveShop(): JsonObject? = liveOverview?.getAsJsonArray("shops")
+        ?.firstOrNull { it.asJsonObject.get("id").asString == selectedShopId() }?.asJsonObject
+
+    private fun requestLive(action: String, shopId: String = "", playerId: String = "", offerId: String = "",
+                            stockKey: String = "", amount: Int = 0, enabled: Boolean = true,
+                            message: String = "", allPlayers: Boolean = false) {
+        if (pending || livePending) return
+        val mutation = action !in listOf("overview", "stock")
+        if (mutation && liveRefreshRequired) { statusError = true; status = tr("live.refresh_required"); return }
+        val id = UUID.randomUUID()
+        liveOperation = id; liveAction = action; livePending = true; livePendingSince = System.currentTimeMillis()
+        liveFormDirty = true
+        if (AdminLiveClient.request(this, action, shopId, playerId, offerId, stockKey, amount, enabled, message, allPlayers, id) == null) {
+            liveOperation = null; livePending = false; statusError = true; status = tr("live.unavailable")
+        }
+    }
+
+    fun acceptLiveResult(operationId: UUID, json: String) {
+        if (operationId != liveOperation) return
+        val action = liveAction
+        livePending = false; liveOperation = null
+        val result = AdminLiveClient.result(json)
+        status = result.message; statusError = !result.success
+        if (result.success) {
+            liveRefreshRequired = false
+            if (result.state.has("shops")) {
+                liveOverview = result.state
+                if (tab == 2 && liveShop() == null) {
+                    selectedFile = visibleFiles().firstOrNull() ?: ""
+                    liveStock = null; stockValues.clear(); stockPage = 0
+                }
+            }
+            if (result.state.has("offers") && result.state.get("shopId").asString == selectedShopId()) {
+                liveStock = result.state; stockValues.clear()
+                stockTarget = result.state.get("playerId").asString
+            }
+        } else liveRefreshRequired = true
+        liveFormDirty = true
+        if (result.success && tab == 2 && (action in listOf("overview", "visibility") || liveStock == null)) refreshStock()
+    }
+
+    private fun refreshStock() {
+        if (livePending || pending) return
+        if (liveOverview == null) { requestLive("overview"); return }
+        if (liveShop() == null) { liveStock = null; liveFormDirty = true; return }
+        requestLive("stock", selectedShopId(), stockTarget)
+    }
+
+    private fun addVisibility(rows: MutableList<UiComponent>) {
+        val current = liveShop()
+        val text = when {
+            liveOverview == null -> tr("live.loading")
+            current == null -> tr("live.save_first")
+            current.get("enabled").asBoolean -> tr("live.enabled")
+            else -> tr("live.disabled")
+        }
+        val actions = if (current == null || liveRefreshRequired) listOf(tr("live.refresh") to { requestLive("overview") })
+            else listOf(tr(if (current.get("enabled").asBoolean) "live.disable" else "live.enable") to {
+                // Use the latest received state even if a text edit deferred rebuilding this row.
+                val latest = liveShop()
+                if (latest != null && !livePending) {
+                    val id = selectedShopId()
+                    if (!latest.get("enabled").asBoolean) requestLive("visibility", id, enabled = true)
+                    else {
+                        var reason = ""
+                        modal = Modal(tr("live.disable_title", id), UiForm(listOf(UiTextFieldComponent(tr("live.reason"),
+                            LambdaFieldBinding("live.reason", { reason }, { reason = it }),
+                            tooltipProvider = { listOf(Component.literal(tr("live.help.reason"))) })))) {
+                            modal = null; requestLive("visibility", id, enabled = false, message = reason)
+                        }
+                    }
+                }
+            }, tr("live.refresh") to { requestLive("overview") })
+        rows += AdminActionRow("${tr("live.visibility")}: $text", actions, tr("live.help.visibility"),
+            actionHints = if (current == null || liveRefreshRequired) listOf(tr("live.help.refresh"))
+                else listOf(tr("live.help.visibility"), tr("live.help.refresh")),
+            enabled = !livePending)
+        current?.get("message")?.asString?.takeIf { it.isNotBlank() && !current.get("enabled").asBoolean }?.let { reason ->
+            rows += UiTextFieldComponent(tr("live.reason"), LambdaFieldBinding("live.reason", { reason }, {}), editable = false,
+                tooltipProvider = { listOf(Component.literal(reason)) })
+        }
+    }
+
+    private fun buildStockForm() {
+        val rows = mutableListOf<UiComponent>()
+        fun info(label: String, hint: String = "", color: Int = 0xBBBBBB) {
+            rows += AdminActionRow(label, emptyList(), hint, color)
+        }
+        rows += UiSectionHeaderComponent(tr("stocks"), 0xFFCC88,
+            tooltipProvider = { listOf(Component.literal(tr("live.immediate"))) })
+        info(tr("live.immediate"), tr("live.dirty_notice"))
+        if (liveRefreshRequired) info(tr("live.refresh_required"), tr("live.help.refresh"), 0xFF7777)
+        if (liveShop() == null) {
+            info(tr(if (liveOverview == null && livePending) "live.loading" else "live.save_first"))
+            form = UiForm(rows, gap = 3); return
+        }
+        val players = liveOverview?.getAsJsonArray("players")?.map { it.asJsonObject.get("id").asString }.orEmpty()
+        rows += UiSelectComponent(tr("live.player"), LambdaFieldBinding("live.player", { stockTarget }, {}),
+            displayText = ::optionLabel, emptyText = minecraft?.player?.name?.string ?: "",
+            onRequestSelection = { rect ->
+                if (!livePending) openDropdown("live.player", players, setOf(stockTarget), false, rect) { values ->
+                    values.firstOrNull()?.let { stockTarget = it; stockAllOnline = false; stockPage = 0; liveStock = null; refreshStock() }
+                }
+            }, tooltipProvider = { listOf(Component.literal(tr("live.help.player"))) })
+        rows += UiTextFieldComponent(tr("live.target"), LambdaFieldBinding("live.target", { stockTarget }, {
+            if (stockTarget != it) { stockTarget = it; stockAllOnline = false; liveFormDirty = true }
+        }),
+            editable = !livePending, tooltipProvider = { listOf(Component.literal(tr("live.help.target"))) })
+        rows += AdminActionRow("", listOf(tr("live.show") to {
+            form.clearFocus(); stockAllOnline = false; stockPage = 0; liveStock = null; refreshStock()
+        }), actionHints = listOf(tr("live.help.show")), enabled = !livePending)
+        rows += UiToggleComponent(tr("live.all_online"), LambdaFieldBinding("live.all_online", { stockAllOnline }, {
+            if (!livePending) stockAllOnline = it
+        }), tr("on"), tr("off"), tooltipProvider = { listOf(Component.literal(tr("live.help.all_online"))) })
+        val data = liveStock?.takeIf { it.get("shopId").asString == selectedShopId() }
+        if (data == null) {
+            info(tr("live.loading")); form = UiForm(rows, gap = 3); return
+        }
+        info(tr("live.viewing", data.get("playerName").asString), data.get("playerId").asString)
+        val targetLoaded = isStockTargetLoaded(data)
+        if (!targetLoaded) info(tr("live.target_changed"), tr("live.help.show"), 0xFF7777)
+        val offers = data.getAsJsonArray("offers").map { it.asJsonObject }
+        if (offers.isEmpty()) info(tr("live.no_stock"))
+        else {
+            rows += AdminActionRow(tr("stocks"), listOf(tr("live.refill_shop") to {
+                mutateStock("restock_shop", tr("live.refill_shop"), data)
+            }), tr("live.help.refill_shop"), actionHints = listOf(tr("live.help.refill_shop")),
+                enabled = !livePending && !liveRefreshRequired && targetLoaded)
+            val pageSize = 20
+            val pages = (offers.size + pageSize - 1) / pageSize
+            stockPage = stockPage.coerceIn(0, pages - 1)
+            if (pages > 1) {
+                val actions = mutableListOf<Pair<String, () -> Unit>>()
+                if (stockPage > 0) actions += tr("live.previous") to { stockPage--; rebuildForm() }
+                if (stockPage < pages - 1) actions += tr("live.next") to { stockPage++; rebuildForm() }
+                rows += AdminActionRow(tr("live.page", stockPage + 1, pages), actions,
+                    actionHints = actions.map { it.first }, enabled = !livePending)
+            }
+            offers.drop(stockPage * pageSize).take(pageSize).forEach { offer ->
+                val key = offer.get("stockKey").asString
+                val max = offer.get("max").asInt
+                val current = offer.get("current").asInt
+                val source = offer.get("offerId").asString
+                val itemId = offer.get("itemId").asString
+                val itemName = offer.get("itemNameComponent")?.let { component -> runCatching {
+                    Component.Serializer.fromJson(component.toString(), minecraft?.level?.registryAccess()
+                        ?: net.minecraft.core.RegistryAccess.EMPTY)?.string
+                }.getOrNull() } ?: offer.get("itemName").asString
+                val count = offer.get("count")?.asInt ?: 1
+                val detail = tr("live.offer_detail", source, itemId, count) + "\n" + tr("live.stock_identity", key)
+                rows += UiSectionHeaderComponent("$itemName ×$count — $current / $max", 0xFFCC88,
+                    tooltipProvider = { listOf(Component.literal(detail)) })
+                val binding = LambdaFieldBinding("live.stock.$key", { stockValues[key] ?: current.toString() }, { stockValues[key] = it })
+                rows += AdminValidatedRow(UiTextFieldComponent(tr("live.remaining"), binding,
+                    editable = !livePending && !liveRefreshRequired && targetLoaded,
+                    tooltipProvider = { listOf(Component.literal(tr("live.help.remaining"))) })) {
+                    if (binding.get().toIntOrNull()?.let { it in 0..max } == true) null else tr("live.range", max)
+                }
+                rows += AdminActionRow(source, listOf(
+                    tr("live.apply") to {
+                        form.clearFocus()
+                        val amount = binding.get().toIntOrNull()
+                        if (amount == null || amount !in 0..max) { statusError = true; status = tr("live.range", max) }
+                        else mutateStock("set_stock", tr("live.apply"), data, source, key, amount)
+                    },
+                    tr("live.refill") to { mutateStock("restock_offer", tr("live.refill"), data, source, key) },
+                    tr("live.refill_source") to { mutateStock("restock_offer", tr("live.refill_source"), data, source) }
+                ), detail, actionHints = listOf(tr("live.help.apply"), tr("live.help.refill"), tr("live.help.refill_source")),
+                    enabled = !livePending && !liveRefreshRequired && targetLoaded)
+                val next = offer.get("nextRestockAt")?.asLong ?: 0L
+                val schedule = if (offer.get("restockType")?.asString.isNullOrBlank()) tr("live.never")
+                else if (next <= 0L) tr("live.no_pending_restock") else {
+                    val date = java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.SHORT)
+                        .withLocale(Locale.forLanguageTag(minecraft?.languageManager?.selected?.replace('_', '-') ?: "en-US"))
+                        .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(next))
+                    tr("live.next_restock", offer.get("nextRestockAmount").asInt, date)
+                }
+                info(schedule, tr("live.help.remaining"))
+            }
+        }
+        form = UiForm(rows, gap = 3)
+    }
+
+    private fun isStockTargetLoaded(data: JsonObject): Boolean = stockTarget.equals(data.get("playerId").asString, ignoreCase = true)
+        || stockTarget.equals(data.get("playerName").asString, ignoreCase = true)
+
+    private fun mutateStock(action: String, label: String, data: JsonObject, offerId: String = "", stockKey: String = "", amount: Int = 0) {
+        if (livePending || liveRefreshRequired) return
+        form.clearFocus()
+        if (!isStockTargetLoaded(data)) { statusError = true; status = tr("live.target_changed"); return }
+        val shop = data.get("shopId").asString
+        val player = data.get("playerId").asString
+        val all = stockAllOnline
+        val apply = { requestLive(action, shop, player, offerId, stockKey, amount, allPlayers = all) }
+        if (all) confirm(tr("live.confirm_all", label), apply) else apply()
+    }
+
     private fun optionLabel(value: String): String {
+        liveOverview?.getAsJsonArray("players")?.firstOrNull { it.asJsonObject.get("id").asString == value }?.asJsonObject?.let {
+            return it.get("name").asString + if (it.get("online").asBoolean) " ●" else ""
+        }
         if (value in AdminConfigSchema.conditionTypes) return fieldLabel(value)
         val key = "gui.cobbledollarscommandshops.admin.option.$value"
         return if (net.minecraft.client.resources.language.I18n.exists(key)) Component.translatable(key).string else value
@@ -446,14 +688,15 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         context.drawString(font, title, 12, 12, 0xFFCC88, false)
         clickActions.clear()
         button(context, UiRect(width - 27, 10, 15, 12), "×", mouseX, mouseY, hint = tr("tooltip.close")) { onClose() }
-        val tabs = listOf(tr("shops"), tr("banks"), tr("settings"))
+        val tabs = listOf(tr("shops"), tr("banks"), tr("stocks"), tr("settings"))
         val leftWidth = (width / 3).coerceIn(105, 190)
         var tabX = 12
         tabs.forEachIndexed { index, label ->
-            val w = (font.width(label) + 12).coerceAtMost((width - 28) / 3)
+            val w = (font.width(label) + 12).coerceAtMost((width - 28) / tabs.size)
             button(context, UiRect(tabX, 29, w, 13), label, mouseX, mouseY, index == tab) {
                 tab = index; fileScroll = 0; search = ""
-                visibleFiles().firstOrNull()?.let { selectFile(it) }
+                val first = visibleFiles().firstOrNull()
+                if (first != null) selectFile(first) else { segments.clear(); rebuildForm() }
             }; tabX += w + 3
         }
         val actions = footerActions()
@@ -492,7 +735,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             button(context, UiRect(actionX, actionY, w, 13), label, mouseX, mouseY, enabled = !pending, hint = hint, action = action)
             actionX += w + 4
         }
-        val statusText = if (pending) tr("saving") else status.ifEmpty { tr("hint") }
+        val statusText = if (pending) tr("saving") else if (livePending) tr("live.loading") else status.ifEmpty { tr(if (tab == 2) "live.immediate" else "hint") }
         font.split(Component.literal(statusText), width - 28).take(2).forEachIndexed { index, line ->
             context.drawString(font, line, 13, height - 32 + index * 10, if (statusError) 0xFF7777 else 0xBBBBBB, false)
         }
@@ -517,8 +760,17 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         context.renderTooltip(font, lines.flatMap { font.split(it, maxWidth) }, mouseX, mouseY)
     }
 
-    private fun selectFile(path: String) { form.clearFocus(); selectedFile = path; segments.clear(); rebuildForm() }
+    private fun selectFile(path: String) {
+        form.clearFocus(); selectedFile = path; segments.clear()
+        if (tab == 2) { stockPage = 0; stockValues.clear(); liveStock = null }
+        rebuildForm()
+        if (tab == 2 && !livePending) refreshStock()
+    }
     private fun footerActions(): List<FooterAction> {
+        if (tab == 2) return listOf(FooterAction(tr("live.refresh"), {
+            form.clearFocus()
+            if (!livePending) requestLive("overview")
+        }, tr("live.help.refresh")))
         val actions = mutableListOf(FooterAction(tr("save", lastDirtyCount), ::save, tr("tooltip.save")), FooterAction(tr("reload"), {
             confirmDiscard {
                 val draft = currentDraft()
@@ -539,7 +791,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (selectedFile.startsWith("shops/")) actions += FooterAction(tr("delete"), { confirm(tr("confirm_delete")) {
             document.deleteFile(selectedFile); segments.clear()
             selectedFile = visibleFiles().firstOrNull() ?: "audit.json"
-            if (selectedFile == "audit.json") tab = 2
+            if (selectedFile == "audit.json") tab = 3
             rebuildForm()
         } }, tr("tooltip.delete"))
         return actions
@@ -549,7 +801,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         refreshValidation()
         validationIssues.firstOrNull()?.let { issue ->
             selectedFile = issue.file
-            tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 2 }
+            tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 3 }
             segments.clear(); segments.addAll(issue.segments.dropLast(1))
             statusError = true; status = tr("validation.save_blocked", issue.file, tr(issue.key, *issue.args.toTypedArray()))
             rebuildForm()

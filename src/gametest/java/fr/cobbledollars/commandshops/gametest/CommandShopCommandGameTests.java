@@ -5,6 +5,7 @@ import java.io.IOException;
 import com.mojang.brigadier.ParseResults;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.tree.CommandNode;
+import fr.cobbledollars.commandshops.admin.runtime.AdminLiveService;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import fr.cobbledollars.commandshops.shop.ShopVisibilityData;
@@ -12,6 +13,7 @@ import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.server.players.ServerOpListEntry;
 import net.minecraft.world.level.GameType;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import net.neoforged.fml.ModList;
@@ -87,31 +89,27 @@ public final class CommandShopCommandGameTests {
         CommandSourceStack adminSource = helper.getLevel().getServer().createCommandSourceStack().withPermission(4);
         CommandSourceStack publicSource = helper.getLevel().getServer().createCommandSourceStack().withPermission(0);
         helper.assertTrue(root != null, "The /cdshops root command was not registered.");
+        helper.assertTrue(root.getChild("admin") != null, "The /cdshops admin subcommand is missing.");
         helper.assertTrue(root.getChild("open") != null, "The /cdshops open subcommand is missing.");
         helper.assertTrue(root.getChild("reload") != null, "The /cdshops reload subcommand is missing.");
-        helper.assertTrue(root.getChild("restock") != null, "The /cdshops restock subcommand is missing.");
-        helper.assertTrue(root.getChild("stock") != null, "The /cdshops stock subcommand is missing.");
-        helper.assertTrue(root.getChild("visibility") != null, "The /cdshops visibility subcommand is missing.");
-        helper.assertTrue(root.getChild("list") != null, "The /cdshops list subcommand is missing.");
+        helper.assertTrue(root.getChild("restock") == null, "Restocking should be available through the admin panel only.");
+        helper.assertTrue(root.getChild("stock") == null, "Stock inspection should be available through the admin panel only.");
+        helper.assertTrue(root.getChild("visibility") == null, "Visibility should be available through the admin panel only.");
+        helper.assertTrue(root.getChild("list") == null, "Shop listing should be available through the admin panel only.");
         helper.assertTrue(root.getChild("where") != null, "The /cdshops where subcommand is missing.");
+        helper.assertTrue(root.getChild("stats") != null, "The /cdshops stats subcommand is missing.");
         helper.assertTrue(root.canUse(adminSource),
                 "The /cdshops root command should remain available to permissioned sources.");
         helper.assertTrue(root.canUse(publicSource),
                 "The /cdshops root command should remain visible to public sources.");
         helper.assertTrue(root.getChild("open").canUse(publicSource),
                 "The /cdshops open subcommand should remain visible to public sources.");
-        helper.assertTrue(root.getChild("list").canUse(publicSource),
-                "The /cdshops list subcommand should remain visible to public sources.");
-        helper.assertTrue(root.getChild("visibility").canUse(publicSource),
-                "The /cdshops visibility root subcommand should remain visible to public sources.");
-        helper.assertTrue(root.getChild("visibility").getChild("list").canUse(publicSource),
-                "The /cdshops visibility list subcommand should remain visible to public sources.");
         helper.assertTrue(!root.getChild("reload").canUse(publicSource),
                 "The /cdshops reload subcommand should remain hidden from public sources.");
-        helper.assertTrue(!root.getChild("restock").canUse(publicSource),
-                "The /cdshops restock subcommand should remain hidden from public sources.");
-        helper.assertTrue(!root.getChild("stock").canUse(publicSource),
-                "The /cdshops stock subcommand should remain hidden from public sources.");
+        helper.assertTrue(!root.getChild("admin").canUse(publicSource),
+                "The /cdshops admin subcommand should remain hidden from public sources.");
+        helper.assertTrue(!root.getChild("stats").canUse(publicSource),
+                "The /cdshops stats subcommand should remain hidden from public sources.");
         helper.assertTrue(!root.getChild("where").canUse(publicSource),
                 "The /cdshops where subcommand should remain hidden from public sources.");
         helper.succeed();
@@ -203,39 +201,38 @@ public final class CommandShopCommandGameTests {
     }
 
     @TestHolder(
-            value = "visibility_commands_toggle_shop_state",
-            title = "Visibility commands toggle shop state",
-            description = "Executes the visibility subcommands and verifies the persisted visibility state of a shop."
+            value = "admin_visibility_toggles_shop_state",
+            title = "Admin visibility toggles shop state",
+            description = "Uses the administrator service to disable and enable a shop with its custom denial message and author."
     )
     @GameTest(batch = "commands.visibility_state", timeoutTicks = 100, setupTicks = 1)
     @EmptyTemplate(value = "5x4x5", floor = true)
-    public static void visibility_commands_toggle_shop_state(ExtendedGameTestHelper helper) {
-        ShopVisibilityData visibilityData = ShopVisibilityData.get(helper.getLevel().getServer());
+    public static void admin_visibility_toggles_shop_state(ExtendedGameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var admin = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        server.getPlayerList().getOps().add(new ServerOpListEntry(admin.getGameProfile(), 2, false));
+        ShopVisibilityData visibilityData = ShopVisibilityData.get(server);
         try {
             visibilityData.enable("general_store");
 
-            int disableResult = CommandShopGameTestSupport.executeCommand(
-                    helper,
-                    "cdshops visibility general_store disable Maintenance window"
-            );
-            helper.assertValueEqual(1, disableResult, "The visibility disable command did not report success.");
+            AdminLiveService.execute(admin, "visibility", "general_store", "", "", "", 0,
+                    false, "Maintenance window", false);
 
             ShopVisibilityData.VisibilityStatus disabledStatus = visibilityData.status("general_store");
-            helper.assertTrue(!disabledStatus.enabled(), "general_store should be disabled after the visibility command.");
+            helper.assertTrue(!disabledStatus.enabled(), "general_store should be disabled after the administrator action.");
             helper.assertValueEqual("Maintenance window", disabledStatus.message(),
                     "The visibility disable message was not persisted correctly.");
-            helper.assertTrue(disabledStatus.changedBy() != null && !disabledStatus.changedBy().isBlank(),
-                    "The visibility change author was not recorded.");
+            helper.assertValueEqual(admin.getGameProfile().getName(), disabledStatus.changedBy(),
+                    "The administrator who changed visibility was not recorded.");
 
-            int enableResult = CommandShopGameTestSupport.executeCommand(helper, "cdshops visibility general_store enable");
-            helper.assertValueEqual(1, enableResult, "The visibility enable command did not report success.");
+            AdminLiveService.execute(admin, "visibility", "general_store", "", "", "", 0,
+                    true, "", false);
             helper.assertTrue(visibilityData.status("general_store").enabled(),
-                    "general_store should be enabled again after the visibility enable command.");
-        } catch (CommandSyntaxException exception) {
-            helper.fail("Visibility command GameTest failed: " + exception.getMessage());
-            return;
+                    "general_store should be enabled again after the administrator action.");
         } finally {
             visibilityData.enable("general_store");
+            server.getPlayerList().deop(admin.getGameProfile());
+            CommandShopSessions.cleanupPlayer(admin.getUUID());
         }
 
         helper.succeed();

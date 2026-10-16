@@ -59,20 +59,12 @@ public final class ConfigGuideFiles {
                 Public commands:
                 
                 - `/cdshops open <shop>`
-                - `/cdshops list`
-                - `/cdshops visibility list`
                 
                 Admin commands (`permission level 2`):
                 
                 - `/cdshops admin` (requires this addon on the administrator's client)
                 - `/cdshops open <shop> <targets>`
                 - `/cdshops reload`
-                - `/cdshops restock <shop> all <players>`
-                - `/cdshops restock <shop> offer <offer> <players>`
-                - `/cdshops stock <shop> <player>`
-                - `/cdshops visibility <shop> status`
-                - `/cdshops visibility <shop> enable`
-                - `/cdshops visibility <shop> disable [message]`
                 - `/cdshops stats summary [window]`
                 - `/cdshops stats top <shops|offers|players|items> [window] [limit]`
                 - `/cdshops stats shop <shop> [window]`
@@ -80,6 +72,24 @@ public final class ConfigGuideFiles {
                 - `/cdshops stats item <item> [window]`
                 - `/cdshops where`
                 
+                ## Live Administration
+
+                The `/cdshops admin` panel lists all loaded shops. Its shop controls can enable
+                or disable a shop immediately and set an optional denial message while disabled.
+                These overrides persist on the server and disabling a shop closes its active
+                sessions.
+
+                The **Stocks** tab is between **Banks** and **Settings**. Select a shop and player
+                to inspect remaining stock, offer capacity, and restock information. Stock can
+                be adjusted directly, or reset to capacity for one offer or the selected shop.
+                These values are per-player remaining purchase bundles; changing them does not
+                change the configured capacity or automatic restock rule.
+
+                Visibility and stock actions take effect immediately and refresh affected shop
+                sessions. They do not edit configuration drafts and do not require **Save**.
+                These runtime controls are available exclusively through `/cdshops admin`.
+                The administrator must have permission level 2 and the optional client addon.
+
                 ## Shop File
                 
                 Shop ids come from the folder name, not from JSON.
@@ -543,9 +553,11 @@ public final class ConfigGuideFiles {
                 
                 ## Feedback Configuration
                 
-                `feedback.json` controls the fallback player feedback used when the client does not have this mod installed.
-                In pure server-only mode it can use action bars, chat messages, and sounds.
-                When a container screen such as a shop or bank is open, `action_bar` falls back to chat automatically because the action bar is hidden behind that UI.
+                `feedback.json` controls player feedback whether or not the client has this mod installed.
+                Every configured `chat` or `action_bar` channel is sent, and `sound` plays the configured sound once.
+                With the optional client layer, a message box also appears near the top-left of the screen whenever a text channel is enabled; it does not replace chat or the action bar.
+                Minecraft may hide the action bar while a shop or bank screen is open. For clients without the optional layer, an `action_bar` message is also sent to chat while a container is open so that it remains visible.
+                An empty channel list disables both text displays and sound for that event.
                 
                 ```json
                 {
@@ -624,14 +636,14 @@ public final class ConfigGuideFiles {
                 
                 With the client layer present:
                 
-                - shop and bank feedback is rendered directly on top of the CobbleDollars screen instead of using chat fallback
+                - shop and bank feedback appears in an additional message box near the top-left of the screen, alongside the channels configured in `feedback.json`
                 - the selected offer can show the next restock amount and exact next restock time using server-provided timestamps
                 
                 Without the client layer:
                 
                 - custom shops still work normally
                 - all validation, stock, bank rules, and conditions still stay server-side
-                - feedback falls back to the channels configured in `feedback.json`
+                - feedback uses the channels configured in `feedback.json`, with chat also showing action-bar messages while a container is open
                 
                 ## Notes
                 
@@ -643,7 +655,7 @@ public final class ConfigGuideFiles {
                 - Exact `stack` matching includes data components.
                 - `mod` matches item registry namespaces.
                 - `match.exclude` only removes items from the current rule. A later rule can reintroduce them.
-                - Shop visibility overrides are stored server-side and controlled with `/cdshops visibility ...`.
+                - Shop visibility overrides are stored server-side and can be controlled from the administrator shop panel.
                 - Audit events enabled in `audit.json` are appended to `logs/cobbledollarscommandshops/audit.jsonl`.
                 - License terms are in the root `LICENSE` file and are bundled into the built jar.
                 """;

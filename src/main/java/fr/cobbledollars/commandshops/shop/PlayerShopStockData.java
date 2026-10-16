@@ -5,6 +5,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.core.HolderLookup;
@@ -65,6 +66,32 @@ public final class PlayerShopStockData extends SavedData {
 
     public int resolveStock(UUID playerUuid, ShopDefinition shop, ResolvedShopOffer offer, long nowMillis) {
         return resolveOfferRuntimeState(playerUuid, shop, offer, nowMillis).stock();
+    }
+
+    /** Players with persisted stock overrides; retrieving these UUIDs never contacts a profile service. */
+    public Set<UUID> knownPlayerIds() {
+        return Set.copyOf(playerStocks.keySet());
+    }
+
+    /**
+     * Replaces one concrete offer's remaining bundle count. A manual edit starts its next
+     * interval at the edit time and must not carry over a pending automatic refill.
+     */
+    public void setRemainingStock(UUID playerUuid, ShopDefinition shop, ResolvedShopOffer offer, int amount, long nowMillis) {
+        if (!offer.hasFiniteStock()) {
+            throw new IllegalArgumentException("Cannot set stock for an unlimited offer.");
+        }
+        if (amount < 0 || amount > offer.maxStock()) {
+            throw new IllegalArgumentException("Stock must be between 0 and " + offer.maxStock() + ".");
+        }
+        if (amount == offer.maxStock()) {
+            removeState(playerUuid, shop, offer);
+        } else {
+            StoredOfferStock state = createDefaultState(offer, nowMillis);
+            state.setStock(amount);
+            setState(playerUuid, shop, offer, state);
+        }
+        setDirty();
     }
 
     public void restockShop(UUID playerUuid, ShopDefinition shop, long nowMillis) {

@@ -12,11 +12,9 @@ internal class AdminActionRow(
     private val hint: String = "",
     private val color: Int = 0xCCCCCC,
     private val actionHints: List<String> = emptyList(),
-    private val labelAboveButtons: Boolean = false,
     private val enabled: Boolean = true
 ) : BaseUiComponent() {
-    private val stacked = labelAboveButtons
-    override val preferredHeight = if (stacked) 30 else 16
+    override val preferredHeight = 16
     private data class ActionButton(val rect: UiRect, val action: () -> Unit, val hint: String?)
     private var buttons = emptyList<ActionButton>()
     private var helpRect: UiRect? = null
@@ -24,7 +22,9 @@ internal class AdminActionRow(
     override fun render(context: GuiGraphics, font: Font, mouseX: Int, mouseY: Int, delta: Float) {
         val spacing = 3
         val widths = actions.map { (text, _) -> UiChrome.measureButtonWidth(font, text).coerceAtLeast(14) }.toMutableList()
-        val availableWidth = (bounds.width - 8 - spacing * (actions.size - 1).coerceAtLeast(0)).coerceAtLeast(actions.size)
+        val helpWidth = if (hint.isNotBlank()) UiChrome.HELP_MARKER_WIDTH else 0
+        val labelWidth = (font.width(label) + helpWidth).coerceAtMost((bounds.width / 3).coerceAtLeast(helpWidth))
+        val availableWidth = (bounds.width - 8 - labelWidth - spacing * actions.size).coerceAtLeast(actions.size)
         // Preserve icon sizes and shrink long captions only when the complete button group will not fit.
         var excess = widths.sum() - availableWidth
         while (excess > 0) {
@@ -35,14 +35,14 @@ internal class AdminActionRow(
         }
         val groupWidth = widths.sum() + spacing * (actions.size - 1).coerceAtLeast(0)
         var nextX = bounds.right - 3 - groupWidth
-        val labelRight = if (stacked || actions.isEmpty()) bounds.right - 4 else nextX - spacing
+        val labelRight = if (actions.isEmpty()) bounds.right - 4 else nextX - spacing
         helpRect = UiHelpInlineLabel.render(
             context, font, UiRect(bounds.x, bounds.y, bounds.width, 14), mouseX, mouseY,
             label, color, hint.isNotBlank(), startX = 5, yOffset = 3,
             maxRightX = labelRight, helpYOffset = 1
         ).tooltipRect
         buttons = actions.mapIndexed { index, (text, action) ->
-            val rect = UiRect(nextX, bounds.y + if (stacked) 16 else 1, widths[index], 12)
+            val rect = UiRect(nextX, bounds.y + 1, widths[index], 12)
             UiChrome.drawButton(context, font, rect, text, enabled && rect.contains(mouseX, mouseY),
                 if (enabled) AdminUiTheme.neutralButton else AdminUiTheme.disabledButton)
             nextX = rect.right + spacing

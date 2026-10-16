@@ -78,6 +78,7 @@ public final class AdminNetwork {
                 (payload, context) -> context.enqueueWork(() -> {
                     if (FMLEnvironment.dist.isClient()) acceptResult(payload.transferId(), payload.success(), payload.message());
                 }));
+        AdminLiveNetwork.register(registrar);
     }
 
     /** Returns false only when the client does not support the optional admin protocol. */
@@ -276,6 +277,43 @@ public final class AdminNetwork {
         return false;
     }
 
+    /** The live protocol shares only the permission-checked session nonce, never configuration state. */
+    static AdminMessage validateLiveSession(ServerPlayer player, UUID sessionId) {
+        if (!player.hasPermissions(2)) {
+            SESSIONS.remove(player.getUUID());
+            return translated("network.permission_required", "Administrator permission level 2 is required.");
+        }
+        long now = System.currentTimeMillis();
+        ServerSession session = SESSIONS.get(player.getUUID());
+        if (session == null || session.connection != player.connection.getConnection()
+                || !session.id.equals(sessionId) || now - session.lastAccess >= SESSION_TIMEOUT_MILLIS) {
+            return translated("live.session_expired", "Session expired. Reopen /cdshops admin.");
+        }
+        session.lastAccess = now;
+        return null;
+    }
+
+    static AdminMessage acceptLiveOperation(ServerPlayer player, UUID sessionId, UUID operationId) {
+        AdminMessage invalid = validateLiveSession(player, sessionId);
+        if (invalid != null) return invalid;
+        AdminLiveOperations.Acceptance accepted = SESSIONS.get(player.getUUID()).liveOperations
+                .accept(operationId, System.currentTimeMillis());
+        return switch (accepted) {
+            case ACCEPT -> null;
+            case DUPLICATE -> translated("live.duplicate", "This operation has already been received. Refresh the live state.");
+            case THROTTLED -> translated("live.throttled", "Too many operations. Wait a moment and try again.");
+            case EXHAUSTED -> {
+                SESSIONS.remove(player.getUUID());
+                yield translated("live.session_expired", "Session expired. Reopen /cdshops admin.");
+            }
+        };
+    }
+
+    /** Physical client only: a runtime request may use the current editor's established nonce. */
+    public static UUID clientSessionId() {
+        return FMLEnvironment.dist.isClient() && clientConnected && clientCorrelated ? CLIENT_SESSION.id() : null;
+    }
+
     private static boolean hasChannels(ServerPlayer player) {
         return NetworkRegistry.hasChannel(player.connection, AdminChunkPayload.TYPE.id())
                 && NetworkRegistry.hasChannel(player.connection, AdminResultPayload.TYPE.id())
@@ -319,6 +357,7 @@ public final class AdminNetwork {
         clientCorrelated = false;
         clientLegacySnapshotAccepted = false;
         clientSave = null;
+        AdminLiveNetwork.clearClientState();
         invokeClient("clear", new Class<?>[0]);
     }
 
@@ -328,6 +367,7 @@ public final class AdminNetwork {
     }
 
     static void tickClient() {
+        AdminLiveNetwork.tickClient();
         long now = System.currentTimeMillis();
         Iterator<Map.Entry<UUID, IncomingSnapshot>> incoming = CLIENT_TRANSFERS.entrySet().iterator();
         while (incoming.hasNext()) {
@@ -402,6 +442,7 @@ public final class AdminNetwork {
         long lastAccess;
         long lastSnapshot;
         AdminTransfer upload;
+        final AdminLiveOperations liveOperations = new AdminLiveOperations();
 
         ServerSession(Connection connection, long now) {
             this.connection = connection;

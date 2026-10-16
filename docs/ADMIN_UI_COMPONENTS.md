@@ -101,6 +101,17 @@ explicitement. Fermer l'écran ou se déconnecter invalide ses demandes. Les
 anciens serveurs restent consultables mais demandent une mise à jour avant
 l'édition, car ils ne corrèlent pas les réponses de rechargement.
 
+Le panneau des boutiques dispose d'un bouton d'activation/désactivation et d'un
+message de refus optionnel. L'onglet Stocks, placé entre Banques et Paramètres,
+permet de consulter, modifier et réapprovisionner le stock d'un joueur. Ces
+actions sont appliquées immédiatement par le serveur, avec vérification des
+permissions et actualisation des sessions concernées. Elles ne modifient pas
+le brouillon de configuration et ne dépendent pas du bouton Enregistrer.
+Les changements de visibilité et la gestion manuelle des stocks sont accessibles
+uniquement depuis `/cdshops admin`, avec le niveau de permission 2 et le mod
+installé sur le client de l'administrateur. Les identifiants des boutiques restent
+consultables dans la liste du panneau.
+
 Exécution ciblée :
 
 ```powershell
@@ -108,9 +119,9 @@ Exécution ciblée :
 ```
 
 Le scénario opt-in `ClientAdminUiSmokeTest` ouvre un client Minecraft réel avec
-un brouillon détaché, vérifie les formulaires et capture neuf vues : boutique,
+un brouillon détaché, vérifie les formulaires et capture dix vues : boutique,
 liste des offres, offre, messages, banque, liste des conditions, condition individuelle,
-valeurs héritées des messages et erreur de saisie.
+valeurs héritées des messages, erreur de saisie et stocks du joueur.
 Il ferme le client après les captures sans envoyer de
 sauvegarde ni modifier les configurations du serveur.
 
@@ -121,11 +132,14 @@ sauvegarde ni modifier les configurations du serveur.
 Les captures sont écrites dans `run/screenshots/admin-root.png`,
 `admin-offers.png`, `admin-offer.png`, `admin-feedback.png`, `admin-bank.png`,
 `admin-conditions.png`, `admin-condition.png`, `admin-feedback-defaults.png` et
-`admin-inline-error.png`.
-Le journal indique `CLIENT_ADMIN_UI_SMOKE_RESULT: PASS` après les neuf rendus.
+`admin-inline-error.png` et `admin-stocks.png`.
+Le journal indique `CLIENT_ADMIN_UI_SMOKE_RESULT: PASS` après les dix rendus.
 Le scénario vérifie aussi les aides et les infobulles des boutons de liste,
 ainsi que le placement du nom et des actions sur une même ligne compacte, sans
 chevauchement entre l'aide et les boutons.
+`ClientAdminLiveSmokeTest` vérifie les réponses corrélées, la conservation du
+brouillon, les stocks distincts des variantes, les limites de saisie et la
+confirmation des modifications visant tous les joueurs connectés.
 `ClientShopOfferOrderSmokeTest` vérifie le widget natif réel : ordre configuré,
 arrivée tardive des données, sélection, recherche, changement de catégorie et
 isolation des autres marchands. Ce scénario ne simule pas de session multijoueur.

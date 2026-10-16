@@ -6,8 +6,8 @@
 
 Server-side NeoForge addon for CobbleDollars on Minecraft `1.21.1`.
 
-Version `1.0.3` requires CobbleDollars `2.0.0+Beta-6.1+1.21.1` or newer. Its commands,
-configuration files, player stock, and optional client installation work as before.
+Version `1.0.3` requires CobbleDollars `2.0.0+Beta-6.1+1.21.1` or newer. Its
+configuration files, player stock, and optional client installation remain compatible.
 Clients with the optional addon installed should also update it to `1.0.3`.
 For CobbleDollars Beta 5.1, use addon version `1.0.2`.
 
@@ -16,11 +16,11 @@ This mod adds command-driven CobbleDollars shops with:
 - configurable global or per-shop banks
 - exact matching through `match.include` / `match.exclude` with `item`, `stack`, `tag`, and `mod`
 - conditional visibility and access rules
-- runtime shop visibility toggles through commands
+- runtime shop visibility controls and player stock management in the administrator panel
 - optional purchase bonuses when buying enough bundles in one transaction
 - structured audit logs for buys, sells, and visibility changes
 - hot config reload with `/cdshops reload`
-- configurable server-only player feedback through `feedback.json`
+- configurable player feedback through `feedback.json`, with or without the optional client layer
 - optional client-side UI enhancements when the same jar is installed on the client
 - built-in English and French localized feedback
 
@@ -31,20 +31,12 @@ It does not replace CobbleDollars, replace CobbleDollars NPCs, or move gameplay 
 Public commands:
 
 - `/cdshops open <shop>`
-- `/cdshops list`
-- `/cdshops visibility list`
 
 Admin commands (`permission level 2`):
 
 - `/cdshops admin` (requires this addon on the administrator's client)
 - `/cdshops open <shop> <targets>`
 - `/cdshops reload`
-- `/cdshops restock <shop> all <players>`
-- `/cdshops restock <shop> offer <offer> <players>`
-- `/cdshops stock <shop> <player>`
-- `/cdshops visibility <shop> status`
-- `/cdshops visibility <shop> enable`
-- `/cdshops visibility <shop> disable [message]`
 - `/cdshops where`
 - `/cdshops stats summary [window]`
 - `/cdshops stats top <shops|offers|players|items> [window] [limit]`
@@ -112,6 +104,15 @@ Inherited feedback settings show their effective defaults and can be customized
 or reset explicitly. Sound previews play locally from the unsaved draft. Basic
 field errors are shown before saving, and late server replies never silently
 replace newer edits; their returned state can be loaded explicitly.
+
+The shop panel also provides an enable/disable button with an optional denial
+message. The **Stocks** tab, between **Banks** and **Settings**, shows a player's
+remaining stock and each offer's capacity. Administrators can adjust stock or
+restock offers there. Visibility and stock actions apply immediately on the
+server and refresh affected shop sessions; they are separate from configuration
+drafts and do not require **Save**. Shop ids remain available in the shop list.
+Visibility changes and manual stock management are available exclusively through
+`/cdshops admin`, requiring permission level 2 and this addon on the administrator's client.
 
 Component provenance and client verification are documented in
 [`docs/ADMIN_UI_COMPONENTS.md`](docs/ADMIN_UI_COMPONENTS.md).

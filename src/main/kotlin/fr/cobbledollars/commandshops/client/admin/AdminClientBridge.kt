@@ -20,6 +20,7 @@ object AdminClientBridge {
             operations.detach()
             boundScreen = screen
             operations.attach()
+            AdminLiveClient.attach(screen)
         }
     }
 
@@ -38,6 +39,7 @@ object AdminClientBridge {
     fun detach(screen: CommandShopAdminScreen) {
         if (boundScreen === screen) {
             operations.detach()
+            AdminLiveClient.detach(screen)
             boundScreen = null
         }
     }
@@ -46,12 +48,14 @@ object AdminClientBridge {
     fun clear() {
         boundScreen = null
         operations.clear()
+        AdminLiveClient.clear()
     }
 
     private fun currentScreen(): CommandShopAdminScreen? {
         val screen = Minecraft.getInstance().screen as? CommandShopAdminScreen
         if (screen !== boundScreen) {
             operations.detach()
+            boundScreen?.let { AdminLiveClient.detach(it) }
             boundScreen = null
         }
         return screen

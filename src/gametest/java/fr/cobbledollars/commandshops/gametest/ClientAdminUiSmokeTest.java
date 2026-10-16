@@ -33,7 +33,7 @@ import net.neoforged.neoforge.client.event.RenderFrameEvent;
 public final class ClientAdminUiSmokeTest {
     private static final int SETTLE_FRAMES = 12;
     private static final String SHOP_FILE = "shops/admin_demo/shop.json";
-    private static final String[] CAPTURE_NAMES = {"admin-root.png", "admin-offers.png", "admin-offer.png", "admin-feedback.png", "admin-bank.png", "admin-conditions.png", "admin-condition.png", "admin-feedback-defaults.png", "admin-inline-error.png"};
+    private static final String[] CAPTURE_NAMES = {"admin-root.png", "admin-offers.png", "admin-offer.png", "admin-feedback.png", "admin-bank.png", "admin-conditions.png", "admin-condition.png", "admin-feedback-defaults.png", "admin-inline-error.png", "admin-stocks.png"};
     private static final String SNAPSHOT = """
             {
               "revision": "admin-ui-smoke-fixture",
@@ -115,10 +115,13 @@ public final class ClientAdminUiSmokeTest {
                 Class.forName("fr.cobbledollars.commandshops.client.ui.overlay.UiDropdownOverlay");
                 Class.forName("fr.cobbledollars.commandshops.client.ui.overlay.UiItemPickerOverlay");
                 ClientShopOfferOrderSmokeTest.verify(minecraft);
+                ClientFeedbackSmokeTest.verify(minecraft);
                 ClientAdminLocalizationSmokeTest.verify(minecraft);
                 ClientAdminOperationSmokeTest.verify(minecraft);
                 ClientAdminUsabilitySmokeTest.verify(minecraft);
+                ClientAdminLiveSmokeTest.verify(minecraft);
                 screen = new CommandShopAdminScreen(SNAPSHOT);
+                ClientAdminLiveSmokeTest.seed(screen, "admin_demo");
                 minecraft.setScreen(screen);
                 assertView(SHOP_FILE, List.of());
                 CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_UI_SMOKE: opened the detached fixture.");
@@ -136,6 +139,12 @@ public final class ClientAdminUiSmokeTest {
         Minecraft minecraft = Minecraft.getInstance();
         try {
             require(minecraft.screen == screen, "The admin screen was unexpectedly replaced.");
+            if (stage == 9 && renderedFrames == 0 && minecraft.getOverlay() == null) {
+                UiForm stockForm = (UiForm) field(screen, "form");
+                UiRect bounds = stockForm.getBounds();
+                stockForm.mouseScrolled(bounds.getX() + bounds.getWidth() / 2,
+                        bounds.getY() + bounds.getHeight() / 2, 0.0, -100.0);
+            }
             if (minecraft.getOverlay() != null || ++renderedFrames < SETTLE_FRAMES) {
                 return;
             }
@@ -149,6 +158,11 @@ public final class ClientAdminUiSmokeTest {
                 require(hasComponent(form, UiSelectComponent.class), "The feedback editor did not build its sound selector.");
             }
             verifyHelp(form);
+            for (UiComponent component : components(form)) {
+                UiComponent row = unwrap(component);
+                if (row.getBounds().getBottom() < form.getBounds().getY() || row.getBounds().getY() > form.getBounds().getBottom()) continue;
+                if (row.getClass().getSimpleName().equals("AdminActionRow")) verifyInlineActionRow(row);
+            }
             if (stage == 1 || stage == 5) verifyCollectionActions(form);
             if (stage == 6) verifyConditionRule(form);
             capture(minecraft);
@@ -170,7 +184,7 @@ public final class ClientAdminUiSmokeTest {
                 renderedFrames = 0;
                 if (stage == CAPTURE_NAMES.length) {
                     completed = true;
-                    CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_UI_SMOKE_RESULT: PASS; 9 views rendered; ordered conditions, custom denial fields, parameter help, collection action tooltips, inherited feedback defaults and inline validation verified.");
+                    CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_UI_SMOKE_RESULT: PASS; 10 views rendered; ordered conditions, custom denial fields, parameter help, collection action tooltips, inherited feedback defaults, inline validation and live stock controls verified.");
                     minecraft.stop();
                     return;
                 }
@@ -179,7 +193,7 @@ public final class ClientAdminUiSmokeTest {
                 } else if (stage == 2) {
                     navigate(SHOP_FILE, 0, List.of("categories", "0", "offers", "0"));
                 } else if (stage == 3) {
-                    navigate("feedback.json", 2, List.of("buy_success"));
+                    navigate("feedback.json", 3, List.of("buy_success"));
                 } else if (stage == 4) {
                     navigate("global_bank.json", 1, List.of());
                 } else if (stage == 5) {
@@ -189,11 +203,13 @@ public final class ClientAdminUiSmokeTest {
                 } else if (stage == 7) {
                     AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
                     document.getFiles().getAsJsonObject("feedback.json").remove("buy_success");
-                    navigate("feedback.json", 2, List.of());
-                } else {
+                    navigate("feedback.json", 3, List.of());
+                } else if (stage == 8) {
                     AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
                     document.resolve(SHOP_FILE, List.of("categories", "0", "offers", "0")).getAsJsonObject().addProperty("price", "invalid");
                     navigate(SHOP_FILE, 0, List.of("categories", "0", "offers", "0"));
+                } else {
+                    navigate(SHOP_FILE, 2, List.of());
                 }
                 capturing = false;
             } catch (Exception | AssertionError exception) {
@@ -269,6 +285,7 @@ public final class ClientAdminUiSmokeTest {
             List<?> buttons = (List<?>) field(row, "buttons");
             if (buttons.size() != expectedActions.size()) continue;
             found = true;
+            verifyInlineActionRow(row);
             UiRect helpRect = (UiRect) field(row, "helpRect");
             require(row.getPreferredHeight() == 16 && row.getBounds().getHeight() == 16,
                     "Collection actions must use a compact single-line row.");
@@ -283,6 +300,37 @@ public final class ClientAdminUiSmokeTest {
             require(!row.mouseClicked(helpRect.getX() + 3, helpRect.getY() + 3, 0), "Help marker must not trigger an action.");
         }
         require(found, "The collection action buttons were not rendered.");
+    }
+
+    /** Checks actual rendered hit areas, including label help, after localization and width changes. */
+    static void verifyInlineActionRow(UiComponent row) throws Exception {
+        List<?> buttons = (List<?>) field(row, "buttons");
+        if (buttons.isEmpty()) return;
+        String label = (String) field(row, "label");
+        require(row.getBounds().getHeight() == 16, "Action buttons must remain on their label's single line: " + label);
+        UiRect help = (UiRect) field(row, "helpRect");
+        int previousRight = row.getBounds().getX();
+        for (Object action : buttons) {
+            UiRect button = (UiRect) field(action, "rect");
+            require(button.getY() == row.getBounds().getY() + 1,
+                    "Action buttons moved below their label: " + label);
+            require(button.getX() >= previousRight && button.getRight() <= row.getBounds().getRight()
+                            && button.getBottom() <= row.getBounds().getBottom(),
+                    "Action hit areas overlap or exceed their row: " + label);
+            if (help != null) {
+                require(help.getY() == button.getY(), "Action help and buttons must share the label's line: " + label);
+                require(help.getRight() <= button.getX(), "Label help overlaps an action button: " + label);
+            }
+            String hint = (String) field(action, "hint");
+            if (hint != null && !hint.isBlank()) {
+                List<Component> tooltip = row.tooltip(button.getX() + Math.min(2, button.getWidth() - 1), button.getY() + 2);
+                require(tooltip != null && hint.equals(tooltip.getFirst().getString()),
+                        "An inline button lost its action tooltip: " + label);
+            }
+            previousRight = button.getRight();
+        }
+        if (help != null) require(!row.mouseClicked(help.getX() + 3, help.getY() + 3, 0),
+                "Clicking inline label help must not trigger an action: " + label);
     }
 
     @SuppressWarnings("unchecked")

@@ -220,7 +220,7 @@ final class ClientAdminUsabilitySmokeTest {
     private static void navigate(Minecraft minecraft, CommandShopAdminScreen screen, String file, List<String> path) throws Exception {
         ((UiForm) field(screen, "form")).clearFocus();
         setField(screen, "selectedFile", file);
-        setField(screen, "tab", file.endsWith("/shop.json") ? 0 : file.endsWith("bank.json") ? 1 : 2);
+        setField(screen, "tab", file.endsWith("/shop.json") ? 0 : file.endsWith("bank.json") ? 1 : 3);
         List<String> segments = (List<String>) field(screen, "segments");
         segments.clear();
         segments.addAll(path);

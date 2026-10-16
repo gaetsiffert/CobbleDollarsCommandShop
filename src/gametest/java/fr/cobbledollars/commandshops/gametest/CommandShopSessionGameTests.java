@@ -4,6 +4,7 @@ import java.math.BigInteger;
 import java.util.UUID;
 
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import fr.cobbledollars.commandshops.admin.runtime.AdminLiveService;
 import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.ResolvedShopOffer;
@@ -15,6 +16,7 @@ import fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt;
 import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.server.players.ServerOpListEntry;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -110,22 +112,24 @@ public final class CommandShopSessionGameTests {
     @EmptyTemplate(value = "5x4x5", floor = true)
     public static void disabling_visibility_closes_active_shop_session(ExtendedGameTestHelper helper) {
         GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
-        ShopVisibilityData visibilityData = ShopVisibilityData.get(helper.getLevel().getServer());
+        GameTestPlayer admin = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        var server = helper.getLevel().getServer();
+        server.getPlayerList().getOps().add(new ServerOpListEntry(admin.getGameProfile(), 2, false));
+        ShopVisibilityData visibilityData = ShopVisibilityData.get(server);
 
         try {
             visibilityData.enable("general_store");
             CommandShopSessions.openShop(player, ShopRegistry.getShop("general_store"));
             helper.assertTrue(player.containerMenu instanceof ShopMenu, "Expected a shop menu before disabling visibility.");
 
-            int result = CommandShopGameTestSupport.executeCommand(helper, "cdshops visibility general_store disable Closed");
-            helper.assertValueEqual(1, result, "The visibility disable command did not report success.");
-            helper.assertTrue(!visibilityData.status("general_store").enabled(), "general_store should be disabled after the command.");
+            AdminLiveService.execute(admin, "visibility", "general_store", "", "", "", 0, false, "Closed", false);
+            helper.assertTrue(!visibilityData.status("general_store").enabled(), "general_store should be disabled after the administrator action.");
             helper.assertTrue(!(player.containerMenu instanceof ShopMenu), "The active shop session should have been closed.");
-        } catch (CommandSyntaxException exception) {
-            helper.fail("Visibility close session GameTest failed: " + exception.getMessage());
-            return;
         } finally {
             visibilityData.enable("general_store");
+            server.getPlayerList().deop(admin.getGameProfile());
+            CommandShopSessions.cleanupPlayer(admin.getUUID());
+            CommandShopSessions.cleanupPlayer(player.getUUID());
         }
 
         helper.succeed();

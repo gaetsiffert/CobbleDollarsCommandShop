@@ -65,19 +65,16 @@ public final class ShopFeedbackService {
 
     private static void emit(ServerPlayer player, FeedbackConfig.EventConfig eventConfig, Component message, int color, int ttlMillis) {
         boolean actionBarRequested = eventConfig.channels().contains(FeedbackChannel.ACTION_BAR);
-        boolean actionBarVisible = actionBarRequested && player.containerMenu == player.inventoryMenu;
-        boolean chatRequested = eventConfig.channels().contains(FeedbackChannel.CHAT) || (actionBarRequested && !actionBarVisible);
+        boolean chatRequested = eventConfig.channels().contains(FeedbackChannel.CHAT);
         boolean textRequested = actionBarRequested || chatRequested;
+        boolean overlaySent = textRequested && ClientUiSync.sendOverlayMessage(player, message, color, ttlMillis);
 
-        if (textRequested && ClientUiSync.sendOverlayMessage(player, message, color, ttlMillis)) {
-            playSound(player, eventConfig);
-            return;
-        }
-
-        if (actionBarVisible) {
+        // The optional client notification supplements the configured native channels.
+        if (actionBarRequested) {
             player.displayClientMessage(message, true);
         }
-        if (chatRequested) {
+        // Vanilla menus can obscure the action bar. Keep the server-only chat fallback.
+        if (chatRequested || (actionBarRequested && !overlaySent && player.containerMenu != player.inventoryMenu)) {
             player.sendSystemMessage(message);
         }
         playSound(player, eventConfig);

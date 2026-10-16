@@ -1,6 +1,8 @@
 package fr.cobbledollars.commandshops.shop;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
@@ -16,6 +18,80 @@ import net.minecraft.world.item.Items;
 import org.junit.jupiter.api.Test;
 
 class PlayerShopStockDataPersistenceTest {
+    @Test
+    void manualStockEditSurvivesReloadAndRestartsTheInterval() throws ReflectiveOperationException {
+        PlayerShopStockData data = load(new CompoundTag());
+        ShopDefinition shop = createIntervalShop();
+        ResolvedShopOffer offer = shop.offers().getFirst().createResolvedOffers().getFirst();
+        UUID player = UUID.randomUUID();
+        long anchor = 1_700_000_000_000L;
+        data.consumeStock(player, shop, offer, 2, anchor);
+
+        data.setRemainingStock(player, shop, offer, 0, anchor + 900L);
+        PlayerShopStockData reloaded = load(data.save(new CompoundTag(), TestRegistryAccess.provider()));
+
+        assertEquals(0, reloaded.resolveStock(player, shop, offer, anchor + 1_000L));
+        assertEquals(anchor + 1_900L, reloaded.previewNextRestock(player, shop, offer, anchor + 1_000L).nextRestockAtMillis());
+        assertEquals(1, reloaded.resolveStock(player, shop, offer, anchor + 1_900L));
+        assertTrue(reloaded.knownPlayerIds().contains(player));
+    }
+
+    @Test
+    void manualStockEditOnlyChangesSelectedVariantAndPlayer() throws ReflectiveOperationException {
+        PlayerShopStockData data = load(new CompoundTag());
+        ShopOfferDefinition definition = new ShopOfferDefinition("gems", new ItemMatchExpression(List.of(
+                new ItemMatchAtom.ExactItem(Items.EMERALD, "minecraft:emerald"),
+                new ItemMatchAtom.ExactItem(Items.DIAMOND, "minecraft:diamond")
+        ), List.of()), 1, BigInteger.ONE, 3, null, ConditionSet.NONE, List.of());
+        ShopDefinition shop = createShop("variants", definition);
+        ResolvedShopOffer emerald = definition.createResolvedOffers().getFirst();
+        ResolvedShopOffer diamond = definition.createResolvedOffers().getLast();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        data.setRemainingStock(first, shop, emerald, 1, 1000L);
+        data.setRemainingStock(first, shop, diamond, 2, 1000L);
+        data.setRemainingStock(second, shop, emerald, 2, 1000L);
+
+        data.setRemainingStock(first, shop, emerald, 0, 2000L);
+
+        assertEquals(0, data.resolveStock(first, shop, emerald, 2000L));
+        assertEquals(2, data.resolveStock(first, shop, diamond, 2000L));
+        assertEquals(2, data.resolveStock(second, shop, emerald, 2000L));
+    }
+
+    @Test
+    void invalidManualStockEditDoesNotChangePersistedData() throws ReflectiveOperationException {
+        PlayerShopStockData data = load(new CompoundTag());
+        ShopDefinition shop = createIntervalShop();
+        ResolvedShopOffer offer = shop.offers().getFirst().createResolvedOffers().getFirst();
+        UUID player = UUID.randomUUID();
+        data.setRemainingStock(player, shop, offer, 1, 1000L);
+        CompoundTag before = data.save(new CompoundTag(), TestRegistryAccess.provider());
+
+        assertThrows(IllegalArgumentException.class, () -> data.setRemainingStock(player, shop, offer, -1, 2000L));
+        assertThrows(IllegalArgumentException.class, () -> data.setRemainingStock(player, shop, offer, 4, 2000L));
+
+        assertEquals(before, data.save(new CompoundTag(), TestRegistryAccess.provider()));
+        data.setRemainingStock(player, shop, offer, offer.maxStock(), 2000L);
+        assertFalse(data.knownPlayerIds().contains(player));
+    }
+
+    @Test
+    void dailyManualEditPreservesNextDailyBoundary() throws ReflectiveOperationException {
+        PlayerShopStockData data = load(new CompoundTag());
+        ShopDefinition shop = createDailyResetShop();
+        ResolvedShopOffer offer = shop.offers().getFirst().createResolvedOffers().getFirst();
+        UUID player = UUID.randomUUID();
+        ZoneId zone = ZoneId.of("Europe/Paris");
+        long editTime = ZonedDateTime.of(2026, 1, 10, 3, 59, 30, 0, zone).toInstant().toEpochMilli();
+        long boundary = ZonedDateTime.of(2026, 1, 10, 4, 0, 0, 0, zone).toInstant().toEpochMilli();
+
+        data.setRemainingStock(player, shop, offer, 0, editTime);
+
+        assertEquals(boundary, data.previewNextRestock(player, shop, offer, editTime).nextRestockAtMillis());
+        assertEquals(4, data.resolveStock(player, shop, offer, boundary));
+    }
+
     @Test
     void saveAndLoadPreservesStockPerPlayer() throws ReflectiveOperationException {
         PlayerShopStockData stockData = load(new CompoundTag());

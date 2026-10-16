@@ -31,25 +31,25 @@ If the same jar is installed on the client, the mod can also provide optional cl
 Public commands:
 
 - `/cdshops open <shop>`
-- `/cdshops list`
-- `/cdshops visibility list`
 
 Admin commands (`permission level 2`):
 
+- `/cdshops admin` (requires this addon on the administrator's client)
 - `/cdshops open <shop> <targets>`
 - `/cdshops reload`
-- `/cdshops restock <shop> all <players>`
-- `/cdshops restock <shop> offer <offer> <players>`
-- `/cdshops stock <shop> <player>`
-- `/cdshops visibility <shop> status`
-- `/cdshops visibility <shop> enable`
-- `/cdshops visibility <shop> disable [message]`
 - `/cdshops stats summary [window]`
 - `/cdshops stats top <shops|offers|players|items> [window] [limit]`
 - `/cdshops stats shop <shop> [window]`
 - `/cdshops stats player <player|uuid> [window]`
 - `/cdshops stats item <item> [window]`
 - `/cdshops where`
+
+The administrator panel lists shops, provides runtime enable/disable controls,
+and includes a **Stocks** tab between **Banks** and **Settings** for inspecting,
+adjusting, and restocking player stock. Visibility and stock actions apply
+immediately on the server, independently of configuration **Save**.
+Visibility changes and manual stock management are available exclusively through
+`/cdshops admin`, requiring permission level 2 and the addon on the administrator's client.
 
 ## Configuration
 

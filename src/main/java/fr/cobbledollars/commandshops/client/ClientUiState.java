@@ -304,7 +304,7 @@ public final class ClientUiState {
 
         bankScreen.render(guiGraphics, -10_000, -10_000, event.getPartialTick());
         if (activeOverlay != null) {
-            renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis, HUD_MARGIN, HUD_MARGIN);
+            renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis);
         }
         renderAcceptedSlotHighlights(guiGraphics, bankScreen);
         renderAcceptedItemsButton(guiGraphics, minecraft.font, bankScreen, event.getMouseX(), event.getMouseY());
@@ -330,7 +330,7 @@ public final class ClientUiState {
         if (event.getScreen() instanceof BankScreen bankScreen) {
             trackBankScreen(bankScreen);
             if (activeOverlay != null) {
-                renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis, HUD_MARGIN, HUD_MARGIN);
+                renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis);
             }
             renderAcceptedSlotHighlights(guiGraphics, bankScreen);
             renderAcceptedItemsButton(guiGraphics, minecraft.font, bankScreen, event.getMouseX(), event.getMouseY());
@@ -346,7 +346,7 @@ public final class ClientUiState {
         acceptedItemsSearchFocused = false;
 
         if (activeOverlay != null) {
-            renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis, HUD_MARGIN, HUD_MARGIN);
+            renderOverlayToast(guiGraphics, minecraft.font, activeOverlay, nowMillis);
         }
     }
 
@@ -367,7 +367,7 @@ public final class ClientUiState {
             return;
         }
 
-        renderOverlayToast(event.getGuiGraphics(), minecraft.font, activeOverlay, nowMillis, HUD_MARGIN, HUD_MARGIN);
+        renderOverlayToast(event.getGuiGraphics(), minecraft.font, activeOverlay, nowMillis);
     }
 
     @SubscribeEvent
@@ -994,15 +994,19 @@ public final class ClientUiState {
         return overlayMessage;
     }
 
-    private static void renderOverlayToast(GuiGraphics guiGraphics, Font font, OverlayMessage activeOverlay, long nowMillis, int x, int y) {
+    private static void renderOverlayToast(GuiGraphics guiGraphics, Font font, OverlayMessage activeOverlay, long nowMillis) {
         int toastAlpha = getToastAlpha(activeOverlay, nowMillis);
         int messageColor = withAlpha(normalizeColor(activeOverlay.color()), toastAlpha);
         int accentColor = withAlpha(normalizeColor(activeOverlay.color()), Math.max(140, toastAlpha));
-        int textWidth = Math.min(TOAST_MAX_WIDTH - 20, Math.max(120, font.width(activeOverlay.message().getString()) + 8));
+        int availableWidth = Math.max(1, guiGraphics.guiWidth() - (HUD_MARGIN * 2));
+        int width = Math.min(Math.min(TOAST_MAX_WIDTH, availableWidth), Math.max(138, font.width(activeOverlay.message()) + 26));
+        int textWidth = Math.max(1, width - 18);
         List<FormattedCharSequence> lines = font.split(activeOverlay.message(), textWidth);
         int height = 12 + (lines.size() * 10);
+        int x = HUD_MARGIN;
+        int y = HUD_MARGIN;
 
-        drawPanel(guiGraphics, new Rect(x, y, textWidth + 18, height), withAlpha(0xFF171A22, Math.min(toastAlpha, 232)), withAlpha(0xFF2B3240, toastAlpha));
+        drawPanel(guiGraphics, new Rect(x, y, width, height), withAlpha(0xFF171A22, Math.min(toastAlpha, 232)), withAlpha(0xFF2B3240, toastAlpha));
         guiGraphics.fill(x, y, x + 4, y + height, accentColor);
         int lineY = y + 6;
         for (FormattedCharSequence line : lines) {

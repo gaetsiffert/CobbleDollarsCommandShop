@@ -21,6 +21,8 @@ class UiForm(
     private var contentHeight = 0
     private var focusedComponent: UiComponent? = null
 
+    val hasFocusedComponent: Boolean get() = focusedComponent != null
+
     /** Distinguishes an actual control click from a click on empty panel space. */
     var lastClickHandled: Boolean = false
         private set
