@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class AdminConfigStoreTest {
     @TempDir
@@ -29,6 +31,7 @@ class AdminConfigStoreTest {
     void initialize() throws IOException {
         store = new AdminConfigStore(root);
         write("audit.json", "{\"enabled\":true}");
+        write("commands.json", "{\"allow_player_open\":true}");
         write("feedback.json", "{}");
         write("global_bank.json", "[]");
         write("shops/original/shop.json", "{\"categories\":[]}");
@@ -40,7 +43,7 @@ class AdminConfigStoreTest {
         write("secret.json", "{\"secret\":true}");
         write("shops/original/readme.txt", "keep me");
         JsonObject initial = snapshot();
-        assertEquals(5, initial.getAsJsonObject("files").size());
+        assertEquals(6, initial.getAsJsonObject("files").size());
         assertFalse(initial.getAsJsonObject("files").has("secret.json"));
         assertTrue(initial.getAsJsonObject("files").get("global_bank.json").isJsonArray());
 
@@ -61,7 +64,7 @@ class AdminConfigStoreTest {
         String saved = store.save(edit.toString(), proposed -> {
             assertFalse(Files.exists(root.resolve("shops/new_shop/shop.json")));
             assertTrue(Files.exists(root.resolve("shops/original/bank.json")));
-            assertEquals(6, proposed.size());
+            assertEquals(7, proposed.size());
             validation.incrementAndGet();
         }, () -> {
             assertTrue(Files.exists(root.resolve("shops/new_shop/bank.json")));
@@ -183,6 +186,70 @@ class AdminConfigStoreTest {
         try (var children = Files.list(root)) {
             assertFalse(children.anyMatch(path -> path.getFileName().toString().startsWith(".admin-config-")));
         }
+    }
+
+    @Test
+    void durablePreparationHappensBeforeMutationAndOutcomeFollowsActivation() throws IOException {
+        JsonObject edit = snapshot();
+        edit.getAsJsonObject("files").getAsJsonObject("audit.json").addProperty("enabled", false);
+        List<String> order = new ArrayList<>();
+        store.save(edit.toString(), ignored -> order.add("validate"), () -> {
+            assertFalse(JsonParser.parseString(Files.readString(root.resolve("audit.json"))).getAsJsonObject().get("enabled").getAsBoolean());
+            order.add("activate");
+        }, new AdminConfigStore.ChangeObserver() {
+            @Override
+            public void prepare(Map<String, com.google.gson.JsonElement> before, Map<String, com.google.gson.JsonElement> after) throws IOException {
+                assertTrue(JsonParser.parseString(Files.readString(root.resolve("audit.json"))).getAsJsonObject().get("enabled").getAsBoolean());
+                assertTrue(before.get("audit.json").getAsJsonObject().get("enabled").getAsBoolean());
+                assertFalse(after.get("audit.json").getAsJsonObject().get("enabled").getAsBoolean());
+                order.add("durable_prepare");
+            }
+            @Override public void complete(String outcome) { order.add(outcome); }
+        });
+        assertEquals(List.of("validate", "durable_prepare", "activate", "applied"), order);
+    }
+
+    @Test
+    void preparationFailureRejectsEditAndConcurrentExternalEditDuringPreparationIsNotOverwritten() throws IOException {
+        String initial = store.snapshot();
+        JsonObject edit = snapshot();
+        edit.getAsJsonObject("files").getAsJsonObject("audit.json").addProperty("enabled", false);
+        assertThrows(IOException.class, () -> store.save(edit.toString(), ignored -> { }, () -> fail("Must not activate"),
+                new AdminConfigStore.ChangeObserver() {
+                    @Override public void prepare(Map<String, com.google.gson.JsonElement> before, Map<String, com.google.gson.JsonElement> after) throws IOException {
+                        throw new IOException("Audit storage is unavailable");
+                    }
+                }));
+        assertEquals(initial, store.snapshot());
+        List<String> outcomes = new ArrayList<>();
+        assertThrows(IOException.class, () -> store.save(edit.toString(), ignored -> { }, () -> fail("Must not activate"),
+                new AdminConfigStore.ChangeObserver() {
+                    @Override public void prepare(Map<String, com.google.gson.JsonElement> before, Map<String, com.google.gson.JsonElement> after) throws IOException {
+                        Files.writeString(root.resolve("feedback.json"), "{\"external\":true}");
+                    }
+                    @Override public void complete(String outcome) { outcomes.add(outcome); }
+                }));
+        assertEquals(List.of("failed"), outcomes);
+        assertEquals("{\"external\":true}", Files.readString(root.resolve("feedback.json")));
+        assertEquals("{\"enabled\":true}", Files.readString(root.resolve("audit.json")));
+    }
+
+    @Test
+    void failedActivationProducesOnlyRolledBackOutcomeAfterRestoringPreviousFiles() throws IOException {
+        String initial = store.snapshot();
+        JsonObject edit = snapshot();
+        edit.getAsJsonObject("files").getAsJsonObject("audit.json").addProperty("enabled", false);
+        AtomicInteger calls = new AtomicInteger();
+        List<String> outcomes = new ArrayList<>();
+        assertThrows(IOException.class, () -> store.save(edit.toString(), ignored -> { }, () -> {
+            if (calls.incrementAndGet() == 1) throw new IOException("Activation failed");
+        }, new AdminConfigStore.ChangeObserver() {
+            @Override public void complete(String outcome) {
+                outcomes.add(outcome);
+                try { assertEquals(initial, store.snapshot()); } catch (IOException exception) { throw new AssertionError(exception); }
+            }
+        }));
+        assertEquals(List.of("rolled_back"), outcomes);
     }
 
     @Test

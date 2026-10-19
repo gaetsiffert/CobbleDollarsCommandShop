@@ -66,11 +66,16 @@ class AdminConfigValidationTest {
     @Test
     void validatesAuditFeedbackAndBothBankFormats() {
         assertDoesNotThrow(() -> AdminConfigService.validate(Map.of(
+                "commands.json", JsonParser.parseString("{\"allow_player_open\":false}"),
                 "audit.json", JsonParser.parseString("{\"enabled\":false,\"flush_each_entry\":false,\"events\":{\"buy_failure\":true}}"),
                 "feedback.json", JsonParser.parseString("{\"buy_success\":{\"channels\":[\"chat\",\"sound\"],\"sound\":{\"id\":\"minecraft:entity.villager.no\",\"volume\":0.5,\"pitch\":1.2}},\"shop_denied\":{\"channels\":[],\"sound\":null}}"),
                 "global_bank.json", JsonParser.parseString("[]"),
                 "shops/test/bank.json", JsonParser.parseString("{\"conditions\":{\"player_tags_all\":[\"vip\"]},\"categories\":[{\"name\":\"Ores\",\"offers\":[{\"match\":{\"include\":[{\"item\":\"minecraft:diamond\"}]},\"price\":10}]}]}")
         ), PROVIDER));
+        assertThrows(IOException.class, () -> AdminConfigService.validate(Map.of(
+                "commands.json", JsonParser.parseString("{\"allow_player_open\":\"false\"}")), PROVIDER));
+        assertThrows(IOException.class, () -> AdminConfigService.validate(Map.of(
+                "commands.json", JsonParser.parseString("[]")), PROVIDER));
         assertThrows(IOException.class, () -> AdminConfigService.validate(Map.of(
                 "audit.json", JsonParser.parseString("{\"enabled\":\"yes\"}")), PROVIDER));
         assertThrows(IOException.class, () -> AdminConfigService.validate(Map.of(

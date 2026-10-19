@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
 
+import fr.cobbledollars.commandshops.shop.ConditionSet;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.world.level.GameType;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.ModList;
 import net.neoforged.testframework.annotation.ForEachTest;
@@ -45,8 +47,17 @@ public final class CommandShopRegistryGameTests {
             ShopDefinition nightMarket = ShopRegistry.getShop("night_market");
             helper.assertTrue(nightMarket != null, "night_market was not loaded.");
             helper.assertTrue(nightMarket.hasTimeConditions(), "night_market should have a night-only time condition.");
-            helper.assertTrue(nightMarket.denyMessage() != null && !nightMarket.denyMessage().isBlank(),
-                    "night_market should expose a deny message.");
+            var player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+            long previousTime = helper.getLevel().getDayTime();
+            try {
+                helper.getLevel().setDayTime(6_000);
+                ConditionSet.Failure failure = nightMarket.conditions().firstFailure(ConditionSet.ConditionContext.capture(player));
+                helper.assertTrue(failure != null, "night_market should refuse daytime access.");
+                helper.assertValueEqual("This market opens only after nightfall.", failure.message(nightMarket.denyMessage()).getString(),
+                        "night_market should retain its effective denial message in both configuration formats.");
+            } finally {
+                helper.getLevel().setDayTime(previousTime);
+            }
         }
         helper.succeed();
     }

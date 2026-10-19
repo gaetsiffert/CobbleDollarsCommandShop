@@ -79,6 +79,7 @@ public final class AdminNetwork {
                     if (FMLEnvironment.dist.isClient()) acceptResult(payload.transferId(), payload.success(), payload.message());
                 }));
         AdminLiveNetwork.register(registrar);
+        AdminAuditNetwork.register(registrar);
     }
 
     /** Returns false only when the client does not support the optional admin protocol. */
@@ -209,7 +210,7 @@ public final class AdminNetwork {
             if (!checkPermission(player, payload.transferId())) {
                 return;
             }
-            AdminConfigService.SaveResult result = AdminConfigService.save(player.getServer(), json);
+            AdminConfigService.SaveResult result = AdminConfigService.save(player.getServer(), json, player);
             sendResult(player, payload.transferId(), result.success(), result.message());
             if (result.success() && result.snapshotJson() != null) {
                 sendSnapshot(player, session, payload.transferId(), result.snapshotJson());
@@ -358,6 +359,7 @@ public final class AdminNetwork {
         clientLegacySnapshotAccepted = false;
         clientSave = null;
         AdminLiveNetwork.clearClientState();
+        AdminAuditNetwork.clearClientState();
         invokeClient("clear", new Class<?>[0]);
     }
 
@@ -368,6 +370,7 @@ public final class AdminNetwork {
 
     static void tickClient() {
         AdminLiveNetwork.tickClient();
+        AdminAuditNetwork.tickClient();
         long now = System.currentTimeMillis();
         Iterator<Map.Entry<UUID, IncomingSnapshot>> incoming = CLIENT_TRANSFERS.entrySet().iterator();
         while (incoming.hasNext()) {
@@ -404,6 +407,7 @@ public final class AdminNetwork {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             SESSIONS.remove(player.getUUID());
+            AdminAuditNetwork.cancel(player.getUUID());
         }
     }
 
@@ -412,6 +416,7 @@ public final class AdminNetwork {
         if (++cleanupTicks % 20 != 0) {
             return;
         }
+        AdminAuditNetwork.tickServer();
         long now = System.currentTimeMillis();
         Iterator<Map.Entry<UUID, ServerSession>> iterator = SESSIONS.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -419,6 +424,7 @@ public final class AdminNetwork {
             ServerSession session = entry.getValue();
             if (now - session.lastAccess >= SESSION_TIMEOUT_MILLIS || !session.connection.isConnected()) {
                 iterator.remove();
+                AdminAuditNetwork.cancel(entry.getKey());
             } else if (session.upload != null && session.upload.expired(now)) {
                 ServerPlayer player = event.getServer().getPlayerList().getPlayer(entry.getKey());
                 UUID transferId = session.upload.id();
@@ -432,6 +438,7 @@ public final class AdminNetwork {
 
     @SubscribeEvent
     public static void onStopping(ServerStoppingEvent event) {
+        AdminAuditNetwork.shutdown();
         SESSIONS.clear();
         cleanupTicks = 0;
     }

@@ -2,6 +2,11 @@
 
 CobbleDollars Command Shops is an addon for **CobbleDollars**. It adds **command-driven shops** that can be opened by name and fully managed on the server. The mod is built for servers that want more control over shop behavior, stock handling, access rules, and transaction logging without moving gameplay authority to the client.
 
+**Version 1.1.0** requires Minecraft **1.21.1**, NeoForge **21.1.230** or newer and CobbleDollars
+**2.0.0+Beta-6.1+1.21.1** or newer. Install the same addon version on the server and
+administrator clients; other players can use shops without the optional client addon.
+See the [1.1.0 changelog](changelogs/CHANGELOG_1.1.0.md) for upgrade notes.
+
 ## What it adds
 
 - multiple custom shops with categories and offers
@@ -16,6 +21,10 @@ CobbleDollars Command Shops is an addon for **CobbleDollars**. It adds **command
 - precise bank and shop matching with `item`, `stack`, `tag`, `mod`, `match.include`, and `match.exclude`
 - exact stack matching, including item data/components
 - shop enable/disable controls at runtime
+- a complete administrator editor for shops, banks, feedback and audit settings
+- ordered shop/bank access conditions with a custom message for each failed rule
+- a searchable Audit browser with statistics, transaction details and manual change history
+- contextual English/French help, click sounds and local feedback sound previews
 - server-side validation and persistent stock data
 
 ## Server-side first
@@ -37,19 +46,18 @@ Admin commands (`permission level 2`):
 - `/cdshops admin` (requires this addon on the administrator's client)
 - `/cdshops open <shop> <targets>`
 - `/cdshops reload`
-- `/cdshops stats summary [window]`
-- `/cdshops stats top <shops|offers|players|items> [window] [limit]`
-- `/cdshops stats shop <shop> [window]`
-- `/cdshops stats player <player|uuid> [window]`
-- `/cdshops stats item <item> [window]`
 - `/cdshops where`
 
 The administrator panel lists shops, provides runtime enable/disable controls,
-and includes a **Stocks** tab between **Banks** and **Settings** for inspecting,
+and includes a **Stocks** tab after **Banks** for inspecting,
 adjusting, and restocking player stock. Visibility and stock actions apply
 immediately on the server, independently of configuration **Save**.
 Visibility changes and manual stock management are available exclusively through
 `/cdshops admin`, requiring permission level 2 and the addon on the administrator's client.
+
+Configuration changes stay in a draft until **Save**, with server validation and
+conflict detection. Late responses preserve newer edits and active text entry. The former `list`, `visibility`,
+`stock`, `restock` and `stats` commands have been replaced by the panel.
 
 ## Configuration
 
@@ -79,7 +87,7 @@ Transaction audit logs are written to:
 logs/cobbledollarscommandshops/audit.jsonl
 ```
 
-The `/cdshops stats ...` admin commands read the active `audit.jsonl` file and any rotated `.jsonl.zip` archives on demand.
+The **Audit** tab in `/cdshops admin` reads the active `audit.jsonl` file and rotated `.jsonl.zip` archives asynchronously. It provides a summary, searchable and sortable shop/player/item/offer statistics, and a newest-first transaction journal. All views support period and recorded-identifier filters, pagination, detail pages, links to related transactions, and explicit refresh. The audit browser is read-only and preserves configuration drafts. The former `/cdshops stats` commands have been removed. Manual administrator stock changes and configuration edits are recorded by default and can be toggled independently under **Settings / Audit**. Their journal entries include the administrator, affected stock or configuration value, previous/new state and an operation ID. Configuration status distinguishes prepared requests from applied, failed or rolled back changes; disabling configuration history is recorded before it takes effect. Automatic refills and access denials are excluded.
 
 ## Important files for writing shops and banks
 

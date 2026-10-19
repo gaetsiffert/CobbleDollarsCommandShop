@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import com.google.gson.JsonArray;
@@ -32,9 +33,18 @@ public final class AdminLiveService {
     public static JsonObject execute(ServerPlayer admin, String action, String shopId, String playerId,
                                      String offerId, String stockKey, int amount, boolean enabled,
                                      String message, boolean allPlayers) {
+        return execute(admin, UUID.randomUUID(), action, shopId, playerId, offerId, stockKey, amount, enabled,
+                message, allPlayers);
+    }
+
+    /** The request UUID groups every concrete stock change made by one bulk operation. */
+    public static JsonObject execute(ServerPlayer admin, UUID operationId, String action, String shopId, String playerId,
+                                     String offerId, String stockKey, int amount, boolean enabled,
+                                     String message, boolean allPlayers) {
         if (!admin.hasPermissions(2)) {
             throw new SecurityException("Administrator permission level 2 is required.");
         }
+        Objects.requireNonNull(operationId, "The live administration operation UUID is required.");
         MinecraftServer server = admin.getServer();
         if (server == null) {
             throw new IllegalStateException("The player is no longer connected to a server.");
@@ -90,16 +100,30 @@ public final class AdminLiveService {
             }
         }
         PlayerShopStockData data = PlayerShopStockData.get(server);
+        ArrayList<StockChange> changes = new ArrayList<>();
         for (UUID target : targets) {
             for (ResolvedShopOffer offer : offers) {
+                // Settle pending automatic refills first: the manual audit delta must describe
+                // only the administrator's edit, even when a refill became due in the meantime.
+                int before = data.resolveStock(target, shop, offer, nowMillis);
                 if ("set_stock".equals(action)) {
                     data.setRemainingStock(target, shop, offer, amount, nowMillis);
                 } else {
                     data.restockOffer(target, shop, offer, nowMillis);
                 }
+                int after = data.resolveStock(target, shop, offer, nowMillis);
+                if (before != after) {
+                    changes.add(new StockChange(target, offer, before, after));
+                }
             }
         }
         persist(server);
+        // An entry acknowledges a durable change; a failed persistence must never create
+        // a successful stock-change record.
+        for (StockChange change : changes) {
+            AuditLogService.logManualStockChanged(admin, operationId, action, shop.id(), change.playerId(),
+                    playerName(server, change.playerId()), change.offer(), change.before(), change.after());
+        }
         for (UUID target : targets) {
             ServerPlayer online = server.getPlayerList().getPlayer(target);
             if (online != null) {
@@ -107,6 +131,9 @@ public final class AdminLiveService {
             }
         }
         return stock(server, shop, selectedPlayer, nowMillis, allPlayers, targets.size());
+    }
+
+    private record StockChange(UUID playerId, ResolvedShopOffer offer, int before, int after) {
     }
 
     private static void persist(MinecraftServer server) {

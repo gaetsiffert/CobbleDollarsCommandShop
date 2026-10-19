@@ -48,7 +48,7 @@ public final class AdminLiveNetwork {
         JsonObject state;
         try {
             // All mutations and their authoritative refreshed state execute on the server thread.
-            state = AdminLiveService.execute(player, request.action(), request.shopId(), request.playerId(),
+            state = AdminLiveService.execute(player, request.operationId(), request.action(), request.shopId(), request.playerId(),
                     request.offerId(), request.stockKey(), request.amount(), request.enabled(), request.message(),
                     request.allPlayers());
         } catch (RuntimeException exception) {

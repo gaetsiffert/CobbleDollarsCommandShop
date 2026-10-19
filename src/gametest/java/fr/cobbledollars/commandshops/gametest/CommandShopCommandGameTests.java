@@ -1,11 +1,15 @@
 package fr.cobbledollars.commandshops.gametest;
 
 import java.io.IOException;
+import java.nio.file.Files;
 
-import com.mojang.brigadier.ParseResults;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.tree.CommandNode;
+import fr.cobbledollars.commandshops.admin.config.AdminConfigService;
 import fr.cobbledollars.commandshops.admin.runtime.AdminLiveService;
+import fr.cobbledollars.commandshops.command.CommandSettings;
 import fr.cobbledollars.commandshops.shop.ShopDefinition;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import fr.cobbledollars.commandshops.shop.ShopVisibilityData;
@@ -26,6 +30,100 @@ import net.neoforged.testframework.gametest.ExtendedGameTestHelper;
 @ForEachTest(idPrefix = "commands.", groups = "commands", side = Dist.DEDICATED_SERVER)
 public final class CommandShopCommandGameTests {
     private CommandShopCommandGameTests() {
+    }
+
+    @TestHolder(value = "player_open_setting_preserves_admin_and_targeted_access", title = "Player opening can be disabled without blocking administrators or targeted opens")
+    @GameTest(batch = "commands.player_open_setting", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void player_open_setting_preserves_admin_and_targeted_access(ExtendedGameTestHelper helper) throws Exception {
+        var server = helper.getLevel().getServer();
+        var player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        var admin = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        player.addTag("command_settings_target");
+        byte[] original = Files.readAllBytes(CommandSettings.getConfigFile());
+        server.getPlayerList().getOps().add(new ServerOpListEntry(admin.getGameProfile(), 2, false));
+        Runnable cleanup = () -> {
+            CommandShopSessions.cleanupPlayer(player.getUUID());
+            CommandShopSessions.cleanupPlayer(admin.getUUID());
+            server.getPlayerList().deop(admin.getGameProfile());
+            try {
+                Files.write(CommandSettings.getConfigFile(), original);
+                AdminConfigService.reload(server, "GameTest cleanup", null);
+            } catch (IOException exception) {
+                helper.fail("Could not restore command settings: " + exception.getMessage());
+            }
+        };
+        try {
+            var dispatcher = server.getCommands().getDispatcher();
+            var publicSource = player.createCommandSourceStack().withPermission(0);
+            var adminSource = admin.createCommandSourceStack().withPermission(2);
+            String open = "cdshops open general_store";
+            AdminConfigService.reload(server, "GameTest setup", null);
+            setPlayerOpen(helper, true);
+            var staleParse = dispatcher.parse(open, publicSource);
+            assertCommandDenied(helper, open + " @s", publicSource);
+
+            setPlayerOpen(helper, false);
+            helper.assertTrue(!CommandSettings.allowPlayerOpen(), "Saving must immediately apply the setting.");
+            CommandSettings.clear();
+            CommandSettings.reload();
+            helper.assertTrue(!CommandSettings.allowPlayerOpen(), "The setting must survive reloading from disk.");
+            var openNode = dispatcher.getRoot().getChild("cdshops").getChild("open");
+            for (int permission = 0; permission <= 4; permission++) {
+                helper.assertValueEqual(permission >= 2, openNode.canUse(publicSource.withPermission(permission)),
+                        "Disabled player opening must allow only permission level 2 and above.");
+            }
+            assertCommandDenied(helper, open, publicSource);
+            assertCommandDenied(helper, open, publicSource.withPermission(1));
+            assertCommandDenied(helper, open + " @s", publicSource);
+            boolean staleDenied = false;
+            try { dispatcher.execute(staleParse); }
+            catch (CommandSyntaxException expected) { staleDenied = true; }
+            helper.assertTrue(staleDenied, "Commands parsed before disabling must also be denied.");
+            helper.assertValueEqual(1, dispatcher.execute(open, adminSource), "Administrators must retain self-opening.");
+            helper.assertValueEqual(1, dispatcher.execute(open + " @a[tag=command_settings_target]",
+                    server.createCommandSourceStack().withPermission(2)), "Targeted server/NPC opens must still work.");
+        } catch (Exception | AssertionError failure) {
+            cleanup.run();
+            throw failure;
+        }
+        helper.runAtTickTime(6, () -> {
+            try {
+                helper.assertTrue(player.containerMenu instanceof ShopMenu, "Targeted opening must reach the non-admin player's menu.");
+                helper.assertTrue(admin.containerMenu instanceof ShopMenu, "The administrator's own shop must open.");
+                player.closeContainer();
+                CommandShopSessions.cleanupPlayer(player.getUUID());
+                setPlayerOpen(helper, true);
+                helper.assertValueEqual(1, server.getCommands().getDispatcher().execute("cdshops open general_store",
+                        player.createCommandSourceStack().withPermission(0)), "Re-enabling must restore public self-opening.");
+            } catch (Exception | AssertionError failure) {
+                cleanup.run();
+                helper.fail("Command access test failed: " + failure.getMessage());
+            }
+        });
+        helper.runAtTickTime(12, () -> {
+            try {
+                helper.assertTrue(player.containerMenu instanceof ShopMenu, "Re-enabled self-opening must reach the player's menu.");
+            } finally {
+                cleanup.run();
+            }
+            helper.succeed();
+        });
+    }
+
+    private static void setPlayerOpen(ExtendedGameTestHelper helper, boolean enabled) throws IOException {
+        var server = helper.getLevel().getServer();
+        JsonObject draft = JsonParser.parseString(AdminConfigService.snapshot(server)).getAsJsonObject();
+        draft.getAsJsonObject("files").getAsJsonObject("commands.json").addProperty("allow_player_open", enabled);
+        var result = AdminConfigService.save(server, draft.toString());
+        helper.assertTrue(result.success(), "The administrator setting must save successfully: " + result.message());
+    }
+
+    private static void assertCommandDenied(ExtendedGameTestHelper helper, String command, CommandSourceStack source) {
+        boolean denied = false;
+        try { source.getServer().getCommands().getDispatcher().execute(command, source); }
+        catch (CommandSyntaxException expected) { denied = true; }
+        helper.assertTrue(denied, "The command must be denied: " + command);
     }
 
     @TestHolder(value = "easy_npc_command_source_opens_shop", title = "Easy NPC command sources open shops")
@@ -97,7 +195,7 @@ public final class CommandShopCommandGameTests {
         helper.assertTrue(root.getChild("visibility") == null, "Visibility should be available through the admin panel only.");
         helper.assertTrue(root.getChild("list") == null, "Shop listing should be available through the admin panel only.");
         helper.assertTrue(root.getChild("where") != null, "The /cdshops where subcommand is missing.");
-        helper.assertTrue(root.getChild("stats") != null, "The /cdshops stats subcommand is missing.");
+        helper.assertTrue(root.getChild("stats") == null, "Audit browsing should be available through the admin panel only.");
         helper.assertTrue(root.canUse(adminSource),
                 "The /cdshops root command should remain available to permissioned sources.");
         helper.assertTrue(root.canUse(publicSource),
@@ -108,31 +206,8 @@ public final class CommandShopCommandGameTests {
                 "The /cdshops reload subcommand should remain hidden from public sources.");
         helper.assertTrue(!root.getChild("admin").canUse(publicSource),
                 "The /cdshops admin subcommand should remain hidden from public sources.");
-        helper.assertTrue(!root.getChild("stats").canUse(publicSource),
-                "The /cdshops stats subcommand should remain hidden from public sources.");
         helper.assertTrue(!root.getChild("where").canUse(publicSource),
                 "The /cdshops where subcommand should remain hidden from public sources.");
-        helper.succeed();
-    }
-
-    @TestHolder(
-            value = "stats_item_command_accepts_namespaced_item_ids",
-            title = "Stats item command accepts namespaced item ids",
-            description = "Verifies that /cdshops stats item accepts standard namespaced item ids such as minecraft:bread."
-    )
-    @GameTest(batch = "commands.read_only", timeoutTicks = 100, setupTicks = 1)
-    @EmptyTemplate(value = "5x4x5", floor = true)
-    public static void stats_item_command_accepts_namespaced_item_ids(ExtendedGameTestHelper helper) {
-        CommandSourceStack source = helper.getLevel().getServer().createCommandSourceStack().withPermission(4);
-        ParseResults<CommandSourceStack> parseResults = helper.getLevel().getServer()
-                .getCommands()
-                .getDispatcher()
-                .parse("cdshops stats item minecraft:bread", source);
-
-        helper.assertTrue(
-                parseResults.getExceptions().isEmpty(),
-                "The stats item command rejected a namespaced item id: " + parseResults.getExceptions()
-        );
         helper.succeed();
     }
 

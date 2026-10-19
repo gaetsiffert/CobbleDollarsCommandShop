@@ -5,6 +5,17 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
 class AdminEditorDocumentTest {
+    @Test
+    fun `command access setting stays in the draft until it is saved`() {
+        val doc = AdminEditorDocument("""{"revision":"commands-rev","files":{"commands.json":{"allow_player_open":true}}}""")
+        val schema = AdminConfigSchema.forFile("commands.json", doc.files.get("commands.json"))
+        assertTrue(schema.fields.getValue("allow_player_open").schema.newValue().asBoolean)
+        doc.files.getAsJsonObject("commands.json").addProperty("allow_player_open", false)
+        assertEquals(1, doc.dirtyCount)
+        assertFalse(AdminEditorDocument(doc.serialize()).resolve("commands.json", listOf("allow_player_open")).asBoolean)
+        assertTrue(AdminDraftValidation.validate(doc).isEmpty())
+    }
+
     private val snapshot = """{"revision":"rev-1","files":{"audit.json":{},"feedback.json":{},"global_bank.json":[],"shops/example/shop.json":{"categories":[{"name":"A","offers":[{"id":"offer_1","match":{"include":[{"item":"minecraft:stone"}]},"price":9007199254740992}]},{"name":"B","offers":[]}]},"shops/example/bank.json":{"offers":[]}}}"""
 
     @Test
@@ -96,6 +107,10 @@ class AdminEditorDocumentTest {
         assertEquals("New category", doc.resolve(created, listOf("categories", "0", "name")).asString)
         assertEquals("Access denied", AdminConfigSchema.shop.fields.getValue("deny_message").schema.newValue().asString)
         assertEquals("new_offer", AdminConfigSchema.shopOffer.newValue().asJsonObject.get("id").asString)
+        val bank = AdminConfigSchema.bank.newValue()
+        assertTrue(bank.isJsonObject, "A new bank must not start as a legacy flat array")
+        assertTrue(bank.asJsonObject.has("categories"))
+        assertFalse(bank.asJsonObject.has("offers"))
     }
 
     @Test
@@ -143,20 +158,72 @@ class AdminEditorDocumentTest {
     }
 
     @Test
-    fun `new root rules are ordered while visibility conditions offer no denial field`() {
+    fun `new conditions at every access and visibility level use ordered rules`() {
         for (schema in listOf(AdminConfigSchema.shop, AdminConfigSchema.bank)) {
             val rootConditions = schema.fields.getValue("conditions").schema
             assertTrue(rootConditions.newValue().isJsonArray)
             assertSame(AdminConfigSchema.accessConditionRule, rootConditions.element)
             assertTrue(schema.fields.containsKey("deny_message"))
         }
-        val visibilityConditions = AdminConfigSchema.shopOffer.fields.getValue("conditions").schema
-        assertTrue(visibilityConditions.newValue().isJsonObject)
-        assertFalse(visibilityConditions.element!!.fields.containsKey("deny_message"))
+        val shopCategory = AdminConfigSchema.shop.fields.getValue("categories").schema.element!!
+        val bankCategory = AdminConfigSchema.bank.fields.getValue("categories").schema.element!!
+        for (schema in listOf(shopCategory, bankCategory, AdminConfigSchema.shopOffer, AdminConfigSchema.bankOffer)) {
+            val conditions = schema.fields.getValue("conditions").schema
+            assertTrue(conditions.newValue().isJsonArray, "Adding category or offer conditions must not require conversion")
+            assertTrue(conditions.newValue().asJsonArray.isEmpty)
+            assertSame(AdminConfigSchema.visibilityConditionRule, conditions.element)
+            assertFalse(conditions.element!!.fields.containsKey("deny_message"))
+        }
         assertEquals(AdminConfigSchema.conditionTypes, AdminConfigSchema.accessConditionRule.variants)
         for (type in AdminConfigSchema.conditionTypes) {
             val values = AdminConfigSchema.accessConditionRule.fields.getValue(type).schema.newValue().asJsonArray
             assertEquals(1, values.size(), "A new $type rule must contain an editable condition")
         }
+    }
+
+    @Test
+    fun `opening and duplicating existing files preserves legacy condition and bank syntax`() {
+        val legacySnapshot = """{"revision":"legacy","files":{
+            "global_bank.json":[{"match":{"include":[{"item":"minecraft:stone"}]},"price":1}],
+            "shops/legacy/shop.json":{"conditions":{"player_tags_all":["member"]},"categories":[
+              {"name":"Old category","conditions":{"dimensions_any":["minecraft:overworld"]},"offers":[]}
+            ]},
+            "shops/legacy/bank.json":[{"match":{"include":[{"item":"minecraft:stone"}]},"price":2}]
+        }}"""
+        val doc = AdminEditorDocument(legacySnapshot)
+        val before = doc.serialize()
+        val source = "shops/legacy/shop.json"
+        assertSame(AdminConfigSchema.accessConditions,
+            AdminConfigSchema.atPath(source, doc.files.get(source), listOf("conditions")))
+        assertSame(AdminConfigSchema.conditions,
+            AdminConfigSchema.atPath(source, doc.files.get(source), listOf("categories", "0", "conditions")))
+        AdminConfigSchema.visibleFields(AdminConfigSchema.shop, doc.files.getAsJsonObject(source))
+        assertSame(AdminConfigSchema.bankOffer, AdminConfigSchema.forFile("global_bank.json", doc.files.get("global_bank.json")).element)
+        assertEquals(before, doc.serialize(), "Reading an old configuration must not convert it")
+        assertEquals(0, doc.dirtyCount)
+
+        val copied = doc.createShop("copy", source)
+        assertEquals(doc.files.get(source), doc.files.get(copied))
+        assertEquals(doc.files.get("shops/legacy/bank.json"), doc.files.get("shops/copy/bank.json"))
+        assertTrue(doc.resolve(copied, listOf("conditions")).isJsonObject)
+        assertTrue(doc.files.get("shops/copy/bank.json").isJsonArray)
+        assertEquals(JsonParser.parseString(legacySnapshot).asJsonObject.getAsJsonObject("files").get(source), doc.files.get(source))
+    }
+
+    @Test
+    fun `bank flattening can discard only recognized conditions that impose no restriction`() {
+        assertTrue(AdminConfigSchema.canDiscardConditions(null))
+        for (json in listOf("null", "[]", "{}", """{"player_tags_all":[],"dimensions_any":null,"scores_all":[]}""")) {
+            val value = JsonParser.parseString(json)
+            val before = value.deepCopy()
+            assertTrue(AdminConfigSchema.canDiscardConditions(value), "Harmless conditions must permit flattening: $json")
+            assertEquals(before, value, "Checking a conversion must not change the source")
+        }
+        for (json in listOf(
+            """[{"player_tags_all":["member"]}]""", """{"player_tags_all":["member"]}""",
+            """{"extension":[]}""", """{"deny_message":"keep"}""", """{"scores_all":{}}""",
+            """[{"player_tags_all":[]}]""", "[{}]", "true", "0", "\"invalid\""
+        )) assertFalse(AdminConfigSchema.canDiscardConditions(JsonParser.parseString(json)),
+            "Active, unknown or malformed conditions must be protected: $json")
     }
 }

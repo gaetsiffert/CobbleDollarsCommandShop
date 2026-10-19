@@ -49,6 +49,7 @@ object AdminClientBridge {
         boundScreen = null
         operations.clear()
         AdminLiveClient.clear()
+        AdminAuditClient.clear()
     }
 
     private fun currentScreen(): CommandShopAdminScreen? {

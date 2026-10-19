@@ -18,10 +18,19 @@ class UiForm(
         private set
 
     private var scrollOffset = 0
+    private var restoredScrollPosition: Int? = null
     private var contentHeight = 0
     private var focusedComponent: UiComponent? = null
 
     val hasFocusedComponent: Boolean get() = focusedComponent != null
+
+    val scrollPosition: Int get() = restoredScrollPosition ?: scrollOffset
+
+    /** The viewport is often assigned on the next render after a form is rebuilt. */
+    fun restoreScrollPosition(position: Int) {
+        restoredScrollPosition = position.coerceAtLeast(0)
+        applyLayout()
+    }
 
     /** Distinguishes an actual control click from a click on empty panel space. */
     var lastClickHandled: Boolean = false
@@ -107,7 +116,9 @@ class UiForm(
 
     private fun setFocusedComponent(component: UiComponent?) {
         if (focusedComponent === component) return
-        focusedComponent?.focusChanged(false)
+        val previous = focusedComponent
+        focusedComponent = null
+        previous?.focusChanged(false)
         focusedComponent = component
         focusedComponent?.focusChanged(true)
     }
@@ -116,7 +127,8 @@ class UiForm(
         if (bounds == UiRect.EMPTY) return
 
         contentHeight = measureContentHeight()
-        val clampedOffset = scrollOffset.coerceIn(0, maxScroll())
+        val clampedOffset = (restoredScrollPosition ?: scrollOffset).coerceIn(0, maxScroll())
+        restoredScrollPosition = null
         scrollOffset = clampedOffset
         layoutForOffset(scrollOffset)
     }

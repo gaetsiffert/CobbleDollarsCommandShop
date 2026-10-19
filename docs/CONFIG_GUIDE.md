@@ -10,6 +10,7 @@ Older examples that put `item`, `stack`, or `tag` directly on an offer are obsol
 config/cobbledollarscommandshops/
   CONFIG_GUIDE.md
   audit.json
+  commands.json
   feedback.json
   global_bank.json
   shops/
@@ -39,12 +40,24 @@ Admin commands (`permission level 2`):
 - `/cdshops admin` (requires this addon on the administrator's client)
 - `/cdshops open <shop> <targets>`
 - `/cdshops reload`
-- `/cdshops stats summary [window]`
-- `/cdshops stats top <shops|offers|players|items> [window] [limit]`
-- `/cdshops stats shop <shop> [window]`
-- `/cdshops stats player <player|uuid> [window]`
-- `/cdshops stats item <item> [window]`
 - `/cdshops where`
+
+## Command Settings
+
+In `/cdshops admin`, open **Settings / Commands** to control whether non-administrators
+can use `/cdshops open <shop>`. The setting is stored in `commands.json`:
+
+```json
+{
+  "allow_player_open": true
+}
+```
+
+Enabled by default. When disabled, only permission level 2+ can open shops directly.
+Administrators retain both command forms; targeted opens from NPCs, command blocks
+and the server still require level 2 and work regardless of this setting. Shop and
+bank access conditions still apply. Save in the editor or use `/cdshops reload`
+after editing the file; connected players' command suggestions update automatically.
 
 ## Live Administration
 
@@ -53,7 +66,7 @@ or disable a shop immediately and set an optional denial message while disabled.
 These overrides persist on the server and disabling a shop closes its active
 sessions.
 
-The **Stocks** tab is between **Banks** and **Settings**. Select a shop and player
+The **Stocks** tab is after **Banks**. Select a shop and player
 to inspect remaining stock, offer capacity, and restock information. Stock can
 be adjusted directly, or reset to capacity for one offer or the selected shop.
 These values are per-player remaining purchase bundles; changing them does not
@@ -71,10 +84,14 @@ Example: `config/cobbledollarscommandshops/shops/syntax_showcase/shop.json`
 
 ```json
 {
-  "deny_message": "This showcase is blocked for your current access profile.",
-  "conditions": {
-    "player_tags_none": ["syntax_showcase_banned"]
-  },
+  "conditions": [
+    {
+      "player_tags_none": [
+        "syntax_showcase_banned"
+      ],
+      "deny_message": "This showcase is blocked for your current access profile."
+    }
+  ],
   "categories": [
     {
       "name": "Fallback Pricing",
@@ -83,7 +100,9 @@ Example: `config/cobbledollarscommandshops/shops/syntax_showcase/shop.json`
           "id": "all_logs",
           "match": {
             "include": [
-              { "tag": "minecraft:logs" }
+              {
+                "tag": "minecraft:logs"
+              }
             ]
           },
           "count": 16,
@@ -93,14 +112,20 @@ Example: `config/cobbledollarscommandshops/shops/syntax_showcase/shop.json`
           "id": "oak_log_vip",
           "match": {
             "include": [
-              { "item": "minecraft:oak_log" }
+              {
+                "item": "minecraft:oak_log"
+              }
             ]
           },
           "count": 16,
           "price": 24,
-          "conditions": {
-            "player_tags_any": ["vip_shop"]
-          }
+          "conditions": [
+            {
+              "player_tags_any": [
+                "vip_shop"
+              ]
+            }
+          ]
         }
       ]
     }
@@ -149,7 +174,8 @@ If an offer has finite stock, `required_bundles` cannot be greater than that sto
 
 ## Bank File
 
-A bank can still be flat:
+New bank files use an object with either `offers` or `categories`.
+A bank can use a direct offer list:
 
 ```json
 {
@@ -170,9 +196,13 @@ Or grouped by categories:
 
 ```json
 {
-  "conditions": {
-    "dimensions_any": ["minecraft:overworld"]
-  },
+  "conditions": [
+    {
+      "dimensions_any": [
+        "minecraft:overworld"
+      ]
+    }
+  ],
   "categories": [
     {
       "name": "Ores",
@@ -180,7 +210,9 @@ Or grouped by categories:
         {
           "match": {
             "include": [
-              { "item": "minecraft:iron_ingot" }
+              {
+                "item": "minecraft:iron_ingot"
+              }
             ]
           },
           "price": 8
@@ -188,7 +220,9 @@ Or grouped by categories:
         {
           "match": {
             "include": [
-              { "stack": "minecraft:paper[custom_data={quest_id:\\\"delivery_alpha\\\"}]" }
+              {
+                "stack": "minecraft:paper[custom_data={quest_id:\"delivery_alpha\"}]"
+              }
             ]
           },
           "price": 250
@@ -213,6 +247,9 @@ Or grouped by categories:
 
 Bank categories help organize large files, but CobbleDollars still receives a flat runtime bank.
 Bank offers do not support a `count` field.
+Older bank files containing only a root array remain readable; the editor can
+wrap them in an object when bank-wide conditions or categories are needed.
+New files already use the object format.
 
 ## Match Syntax
 
@@ -243,7 +280,7 @@ Examples:
 
 ```json
 { "item": "minecraft:oak_log" }
-{ "stack": "minecraft:paper[custom_data={quest_id:\\\"syntax_ticket\\\"}]" }
+{ "stack": "minecraft:paper[custom_data={quest_id:\"syntax_ticket\"}]" }
 { "tag": "minecraft:logs" }
 { "mod": "minecraft" }
 ```
@@ -281,24 +318,30 @@ If two visible rules have the same priority, the first declared rule wins.
 Example:
 
 ```json
-[
-  {
-    "match": {
-      "include": [
-        { "tag": "minecraft:logs" }
-      ]
+{
+  "offers": [
+    {
+      "match": {
+        "include": [
+          {
+            "tag": "minecraft:logs"
+          }
+        ]
+      },
+      "price": 2
     },
-    "price": 2
-  },
-  {
-    "match": {
-      "include": [
-        { "item": "minecraft:oak_log" }
-      ]
-    },
-    "price": 5
-  }
-]
+    {
+      "match": {
+        "include": [
+          {
+            "item": "minecraft:oak_log"
+          }
+        ]
+      },
+      "price": 5
+    }
+  ]
+}
 ```
 
 Here `oak_log` takes the explicit `item` rule at `5`, while the other logs stay at `2`.
@@ -322,13 +365,19 @@ Here `oak_log` takes the explicit `item` rule at `5`, while the other logs stay 
 {
   "match": {
     "include": [
-      { "item": "minecraft:oak_log" }
+      {
+        "item": "minecraft:oak_log"
+      }
     ]
   },
   "price": 5,
-  "conditions": {
-    "player_tags_any": ["vip_shop"]
-  }
+  "conditions": [
+    {
+      "player_tags_any": [
+        "vip_shop"
+      ]
+    }
+  ]
 }
 ```
 
@@ -358,8 +407,9 @@ Conditions can be used on shops, shop categories, shop offers, banks, bank categ
 
 ### Ordered Access Rules and Denial Messages
 
-For shop-wide and bank-wide access, use an ordered array. Each rule contains exactly
-one condition family and an optional `deny_message`:
+New conditions use an ordered array at every level. Each rule contains exactly
+one condition family. Shop-wide and bank-wide access rules can also have an
+optional `deny_message`:
 
 ```json
 {
@@ -394,7 +444,9 @@ nonempty condition family.
 
 The administrator screen lets you edit each rule's message and change the rule
 order with the arrows. Existing object-format conditions remain supported and
-can be converted to ordered rules in the editor. Their evaluation order remains:
+can be converted to ordered rules in the editor. Existing files are not rewritten
+automatically. Newly generated examples and conditions added in the panel already
+use ordered rules, so they do not need that conversion. Legacy evaluation order remains:
 `player_tags_all`, `player_tags_any`, `player_tags_none`, `advancements_all`,
 `advancements_any`, `dimensions_any`, `time_ranges_any`, `scores_all`.
 
@@ -427,19 +479,52 @@ Example:
 
 ```json
 {
-  "conditions": {
-    "player_tags_all": ["vip_shop"],
-    "player_tags_none": ["shop_banned"],
-    "advancements_any": ["minecraft:story/mine_diamond"],
-    "dimensions_any": ["minecraft:overworld"],
-    "time_ranges_any": [
-      { "start_tick": 13000, "end_tick": 23000 }
-    ],
-    "scores_all": [
-      { "objective": "reputation", "min": 100 },
-      { "objective": "quest_stage", "equals": 3 }
-    ]
-  }
+  "conditions": [
+    {
+      "player_tags_all": [
+        "vip_shop"
+      ]
+    },
+    {
+      "player_tags_none": [
+        "shop_banned"
+      ]
+    },
+    {
+      "advancements_any": [
+        "minecraft:story/mine_diamond"
+      ]
+    },
+    {
+      "dimensions_any": [
+        "minecraft:overworld"
+      ]
+    },
+    {
+      "time_ranges_any": [
+        {
+          "start_tick": 13000,
+          "end_tick": 23000
+        }
+      ]
+    },
+    {
+      "scores_all": [
+        {
+          "objective": "reputation",
+          "min": 100
+        }
+      ]
+    },
+    {
+      "scores_all": [
+        {
+          "objective": "quest_stage",
+          "equals": 3
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -589,13 +674,15 @@ It can disable the whole feature, enable or disable individual event types, and 
     "buy_failure": false,
     "sell_success": true,
     "sell_failure": false,
-    "visibility_changed": true
+    "visibility_changed": true,
+    "stock_changed": true,
+    "config_changed": true
   }
 }
 ```
 
 Audit entries are appended as JSON Lines to `logs/cobbledollarscommandshops/audit.jsonl`.
-The `/cdshops stats ...` admin commands read the active `audit.jsonl` file and any rotated `.jsonl.zip` archives on demand.
+The **Audit** tab in `/cdshops admin` reads the active `audit.jsonl` file and rotated `.jsonl.zip` archives asynchronously. It provides a summary, searchable and sortable shop/player/item/offer statistics, and a newest-first transaction journal. All views support period and recorded-identifier filters, pagination, detail pages, links to related transactions, and explicit refresh. The audit browser is read-only and preserves configuration drafts. The former `/cdshops stats` commands have been removed.
 The current schema logs:
 
 - `buy_success`
@@ -603,6 +690,37 @@ The current schema logs:
 - `sell_success`
 - `sell_failure`
 - `visibility_changed`
+- `stock_changed`
+- `config_changed`
+
+`stock_changed` records only real manual administrator stock changes after they are saved:
+setting the remaining stock, refilling offer variants, and refilling a shop. Each entry
+identifies the administrator, affected player, shop, source offer, exact stock variant,
+item, and remaining stock before/after. Bulk changes share an `operation_id`.
+Purchases, automatic refills, rejected requests and unchanged quantities do not create
+manual stock events.
+
+`config_changed` records saved administrator edits and reloads, including creations
+and deletions. A `prepared` entry describes each changed file and JSON pointer with
+its exact `before`/`after` values and presence flags (an absent value differs from JSON
+null). One terminal entry with the same `operation_id` reports `applied`, `failed`,
+`rolled_back`, `rollback_failed` or `activation_failed`. Prepared changes alone do not
+confirm activation. A failed reload activation may have already applied some settings;
+it does not guarantee that the previous configuration was restored.
+The journal's **View operation** action shows all records belonging to that operation.
+Only `applied` operations contribute to the configuration-change summary count.
+
+Both types default to enabled and can be changed independently in **Settings / Audit**.
+Configuration history captures the old or new enabled policy: turning off
+`events.config_changed`, or the audit master switch, is written and forced to disk
+before an administrator save changes configuration files (or before a reload activates
+external edits), and its final outcome is retained even after recording is disabled. A failure to write that initial history rejects
+the save before changes are made. Unchanged configuration saves produce no events.
+For `source: "reload"`, the recorded actor is the person running the reload, not the
+unknown author of external file edits. If files contain external changes that have not
+yet been reloaded, administrator saves are rejected and their drafts are kept; run
+`/cdshops reload` first. Oversized JSON values retain a bounded preview,
+the original byte size, SHA-256 fingerprint and explicit truncation flags.
 
 ## Optional Client Layer
 

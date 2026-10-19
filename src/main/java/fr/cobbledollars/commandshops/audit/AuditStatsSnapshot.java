@@ -15,6 +15,8 @@ public record AuditStatsSnapshot(
         long sellSuccessCount,
         long sellFailureCount,
         long visibilityChangeCount,
+        long stockChangeCount,
+        long configChangeCount,
         BigInteger totalSpent,
         BigInteger totalEarned,
         Map<String, ShopStats> shopsById,
@@ -32,11 +34,11 @@ public record AuditStatsSnapshot(
     }
 
     public static AuditStatsSnapshot empty(AuditTimeWindow window) {
-        return new AuditStatsSnapshot(window, 0L, 0L, 0L, 0L, 0L, BigInteger.ZERO, BigInteger.ZERO, Map.of(), Map.of(), Map.of(), Map.of());
+        return new AuditStatsSnapshot(window, 0L, 0L, 0L, 0L, 0L, 0L, 0L, BigInteger.ZERO, BigInteger.ZERO, Map.of(), Map.of(), Map.of(), Map.of());
     }
 
     public boolean hasData() {
-        return buySuccessCount > 0L || buyFailureCount > 0L || sellSuccessCount > 0L || sellFailureCount > 0L || visibilityChangeCount > 0L;
+        return buySuccessCount > 0L || buyFailureCount > 0L || sellSuccessCount > 0L || sellFailureCount > 0L || visibilityChangeCount > 0L || stockChangeCount > 0L || configChangeCount > 0L;
     }
 
     public BigInteger netFlow() {

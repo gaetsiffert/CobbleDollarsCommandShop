@@ -21,9 +21,17 @@ import java.util.UUID
 class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("gui.cobbledollarscommandshops.admin.title")) {
     private var document = AdminEditorDocument(snapshot)
     private var selectedFile = document.files.keySet().sorted().firstOrNull { it.endsWith("/shop.json") } ?: "audit.json"
-    private var tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 3 }
+    private var tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 4 }
+    private val audit = AdminAuditPanel(this)
     private val segments = mutableListOf<String>()
     private var form = UiForm(emptyList())
+    private val viewScroll = AdminViewScrollState()
+    private var rebuildingForm = false
+    private data class TabView(val file: String, val path: List<String>, val search: String, val scroll: Int)
+    private val tabViews = mutableMapOf<Int, TabView>()
+    private val filePaths = object : LinkedHashMap<Pair<Int, String>, List<String>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Int, String>, List<String>>?) = size > 256
+    }
     private var fileScroll = 0
     private var search = ""
     private var searchForm = UiForm(emptyList())
@@ -54,6 +62,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
     private val dropdown = UiDropdownOverlay { tr("done") }
     private var dropdownState: UiDropdownOverlay.State? = null
     private var dropdownApply: ((Set<String>) -> Unit)? = null
+    private var dropdownDisplay: (String) -> String = { optionLabel(it) }
     private val itemPicker = UiItemPickerOverlay({ tr("pick_item") }, { tr("search") })
     private val itemSearch = UiSingleLineEditorState()
     private var itemResults = emptyList<Item>()
@@ -83,6 +92,13 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         val translation = "gui.cobbledollarscommandshops.admin.help.$contextualKey"
         return if (net.minecraft.client.resources.language.I18n.exists(translation)) Component.translatable(translation).string else tr("help.value")
     }
+    private fun tabDescription(): String = tr("help.tab." + when (tab) {
+        0 -> "shops"
+        1 -> "banks"
+        2 -> "stocks"
+        3 -> "audit"
+        else -> "settings"
+    })
     private fun hints(vararg actions: String): List<String> = actions.map { tr("tooltip.$it") }
     private fun playClick() {
         minecraft?.soundManager?.play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.value(), 1.0f, 0.25f))
@@ -98,8 +114,9 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
 
     fun acceptSnapshot(json: String) {
         document = AdminEditorDocument(json)
-        if (!document.files.has(selectedFile)) selectedFile = visibleFiles().firstOrNull() ?: document.files.keySet().sorted().first()
-        segments.clear()
+        if (!document.files.has(selectedFile)) selectedFile = (if (tab == 3) emptyList() else visibleFiles()).firstOrNull() ?: document.files.keySet().sorted().first()
+        restoreValidConfigPath()
+        viewScroll.discardWhere { key -> key.firstOrNull() == "config" && !validConfigPath(key[2], key.drop(3)) }
         pending = false
         pendingOperation = null
         deferredSnapshot = null
@@ -136,6 +153,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
 
     override fun removed() {
         form.clearFocus(); searchForm.clearFocus()
+        AdminAuditClient.detach(this)
         AdminClientBridge.detach(this)
         super.removed()
     }
@@ -154,6 +172,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             pending = false; statusError = true; status = tr("timeout")
         }
         lastDirtyCount = document.dirtyCount
+        audit.tick()
         if (livePending && System.currentTimeMillis() - livePendingSince > 45000) {
             AdminLiveClient.invalidate(this)
             liveOperation = null; livePending = false; liveRefreshRequired = true
@@ -161,12 +180,13 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             liveFormDirty = true
         }
         // A runtime reply must not commit or interrupt a configuration field being edited.
-        if (liveFormDirty && !form.hasFocusedComponent && modal == null && dropdownState == null && itemApply == null) {
-            liveFormDirty = false; rebuildForm()
+        if ((liveFormDirty || (tab == 3 && audit.needsRebuild)) && !form.hasFocusedComponent && modal == null && dropdownState == null && itemApply == null) {
+            liveFormDirty = false; audit.needsRebuild = false; rebuildForm()
         }
     }
 
     private fun visibleFiles(): List<String> {
+        if (tab == 3) return audit.sections
         if (tab == 2 && liveOverview != null) return liveOverview!!.getAsJsonArray("shops")
             .map { "shops/${it.asJsonObject.get("id").asString}/shop.json" }
             .filter { it.contains(search, ignoreCase = true) }.sorted()
@@ -174,7 +194,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         val matchesTab = when (tab) {
             0, 2 -> path.endsWith("/shop.json")
             1 -> path == "global_bank.json" || path.endsWith("/bank.json")
-            else -> path == "audit.json" || path == "feedback.json"
+            else -> path in listOf("audit.json", "commands.json", "feedback.json")
         }
         matchesTab && path.contains(search, ignoreCase = true)
         }.sorted()
@@ -184,9 +204,32 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         AdminConfigSchema.atPath(selectedFile, document.files.get(selectedFile), segments)
 
     private fun rebuildForm() {
-        form.clearFocus()
+        if (rebuildingForm) return
+        rebuildingForm = true
+        try {
+            val previous = form
+            previous.clearFocus()
+            rebuildFormContent()
+            val key = when (tab) {
+                3 -> audit.scrollKey()
+                2 -> listOf("stock", selectedShopId(), stockTarget, stockPage.toString())
+                else -> listOf("config", tab.toString(), selectedFile) + segments
+            }
+            val rememberable = when (tab) {
+                3 -> audit.hasScrollContent()
+                2 -> liveShop() != null && liveStock?.get("shopId")?.asString == selectedShopId()
+                else -> document.files.has(selectedFile)
+            }
+            form.restoreScrollPosition(viewScroll.show(key, previous.scrollPosition, previous.bounds != UiRect.EMPTY, rememberable))
+        } finally {
+            rebuildingForm = false
+        }
+    }
+
+    private fun rebuildFormContent() {
         refreshValidation()
         if (tab == 2) { buildStockForm(); return }
+        if (tab == 3) { form = audit.buildForm(); return }
         if (!document.files.has(selectedFile)) { form = UiForm(emptyList()); return }
         val node = document.resolve(selectedFile, segments)
         val schema = selectedSchema()
@@ -201,7 +244,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
                 else -> selectedFile.removeSuffix(".json")
             }
         rows += UiSectionHeaderComponent(nodeName ?: segments.lastOrNull()?.let { if (it.toIntOrNull() != null) "${tr("entry")} ${it.toInt() + 1}" else fieldLabel(it) } ?: selectedFile, 0xFFCC88,
-            tooltipProvider = { listOf(Component.literal(help(sectionHelp))) })
+            tooltipProvider = { listOf(Component.literal(if (segments.isEmpty()) tabDescription() else help(sectionHelp))) })
         if (tab == 0 && segments.isEmpty() && selectedFile.endsWith("/shop.json")) addVisibility(rows)
         if (validationIssues.any { it.file == selectedFile && it.segments == segments }) {
             val file = selectedFile
@@ -324,7 +367,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
                 node.add("categories", JsonArray().apply { add(category) })
             } else {
                 val categories = node.getAsJsonArray("categories")
-                if (categories != null && categories.any { it.asJsonObject.has("conditions") }) {
+                if (categories != null && categories.any { !it.isJsonObject || !AdminConfigSchema.canDiscardConditions(it.asJsonObject.get("conditions")) }) {
                     statusError = true; status = tr("category_conditions"); return@to
                 }
                 val offers = JsonArray()
@@ -409,6 +452,11 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
 
     private fun uniqueOfferIds(value: JsonElement) = document.uniqueOfferIds(selectedFile, value)
 
+    private fun discardChildPositions(path: List<String>) {
+        val prefix = listOf("config", tab.toString(), selectedFile) + path
+        viewScroll.discardWhere { key -> key.size > prefix.size && key.take(prefix.size) == prefix }
+    }
+
     private fun removeArrayEntry(array: JsonArray, index: Int) {
         val rulePath = segments.dropLast(1)
         val ruleSchema = if (rulePath.isNotEmpty()) AdminConfigSchema.atPath(selectedFile, document.files.get(selectedFile), rulePath) else null
@@ -417,15 +465,17 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             val rules = document.resolve(selectedFile, rulesPath).asJsonArray
             val ruleIndex = rulePath.last().toInt()
             confirm(tr("confirm_delete_condition")) {
+                discardChildPositions(rulesPath)
                 rules.remove(ruleIndex)
                 segments.clear(); segments.addAll(rulesPath); rebuildForm()
             }
-        } else { array.remove(index); rebuildForm() }
+        } else { discardChildPositions(segments); array.remove(index); rebuildForm() }
     }
 
     private fun move(array: JsonArray, index: Int, delta: Int) {
         val target = index + delta
         if (target !in 0 until array.size()) return
+        discardChildPositions(segments)
         val value = array[index]; array.set(index, array[target]); array.set(target, value); rebuildForm()
     }
 
@@ -551,7 +601,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             rows += AdminActionRow(label, emptyList(), hint, color)
         }
         rows += UiSectionHeaderComponent(tr("stocks"), 0xFFCC88,
-            tooltipProvider = { listOf(Component.literal(tr("live.immediate"))) })
+            tooltipProvider = { listOf(Component.literal(tabDescription())) })
         info(tr("live.immediate"), tr("live.dirty_notice"))
         if (liveRefreshRequired) info(tr("live.refresh_required"), tr("live.help.refresh"), 0xFF7777)
         if (liveShop() == null) {
@@ -668,8 +718,10 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         return if (net.minecraft.client.resources.language.I18n.exists(key)) Component.translatable(key).string else value
     }
 
-    private fun openDropdown(key: String, options: List<String>, selected: Set<String>, multi: Boolean, rect: UiRect, apply: (Set<String>) -> Unit) {
+    private fun openDropdown(key: String, options: List<String>, selected: Set<String>, multi: Boolean, rect: UiRect,
+                             displayText: (String) -> String = ::optionLabel, apply: (Set<String>) -> Unit) {
         form.clearFocus()
+        dropdownDisplay = displayText
         dropdownState = UiDropdownOverlay.State(key, options, selected, 0, multi, rect.x, rect.y, 0, 0, width, height)
         dropdownApply = apply
     }
@@ -688,15 +740,13 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         context.drawString(font, title, 12, 12, 0xFFCC88, false)
         clickActions.clear()
         button(context, UiRect(width - 27, 10, 15, 12), "×", mouseX, mouseY, hint = tr("tooltip.close")) { onClose() }
-        val tabs = listOf(tr("shops"), tr("banks"), tr("stocks"), tr("settings"))
+        val tabs = listOf(tr("shops"), tr("banks"), tr("stocks"), tr("audit.tab"), tr("settings"))
         val leftWidth = (width / 3).coerceIn(105, 190)
         var tabX = 12
         tabs.forEachIndexed { index, label ->
             val w = (font.width(label) + 12).coerceAtMost((width - 28) / tabs.size)
-            button(context, UiRect(tabX, 29, w, 13), label, mouseX, mouseY, index == tab) {
-                tab = index; fileScroll = 0; search = ""
-                val first = visibleFiles().firstOrNull()
-                if (first != null) selectFile(first) else { segments.clear(); rebuildForm() }
+            button(context, UiRect(tabX, 29, w, 13), label, mouseX, mouseY, index == tab, hint = label) {
+                selectTab(index)
             }; tabX += w + 3
         }
         val actions = footerActions()
@@ -712,14 +762,17 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         val detail = UiRect(left.right + 5, 46, width - left.right - 16, left.height)
         UiChrome.drawPanel(context, left, AdminUiTheme.adminPanel)
         UiChrome.drawPanel(context, detail, AdminUiTheme.adminPanel)
-        searchForm.layout(UiRect(left.x + 2, left.y + 2, left.width - 4, 15))
-        searchForm.render(context, font, mouseX, mouseY, delta)
+        if (tab == 3) context.drawString(font, audit.text("sections"), left.x + 5, left.y + 5, 0xBBBBBB, false)
+        else {
+            searchForm.layout(UiRect(left.x + 2, left.y + 2, left.width - 4, 15))
+            searchForm.render(context, font, mouseX, mouseY, delta)
+        }
         val files = visibleFiles()
         val visibleCount = ((left.height - 22) / 16).coerceAtLeast(1)
         fileScroll = fileScroll.coerceIn(0, (files.size - visibleCount).coerceAtLeast(0))
         files.drop(fileScroll).take(visibleCount).forEachIndexed { index, path ->
-            val name = if (path.startsWith("shops/")) path.split('/')[1] else if (path == "global_bank.json") tr("global_bank") else fieldLabel(path.removeSuffix(".json"))
-            button(context, UiRect(left.x + 3, left.y + 20 + index * 16, left.width - 6, 14), name, mouseX, mouseY, path == selectedFile) { selectFile(path) }
+            val name = if (tab == 3) audit.sectionName(path) else if (path.startsWith("shops/")) path.split('/')[1] else if (path == "global_bank.json") tr("global_bank") else fieldLabel(path.removeSuffix(".json"))
+            button(context, UiRect(left.x + 3, left.y + 20 + index * 16, left.width - 6, 14), name, mouseX, mouseY, if (tab == 3) path == audit.view else path == selectedFile) { selectFile(path) }
         }
         if (fileScroll > 0) context.drawString(font, "↑", left.right - 9, left.y + 17, 0xAAAAAA, false)
         if (fileScroll + visibleCount < files.size) context.drawString(font, "↓", left.right - 9, left.bottom - 10, 0xAAAAAA, false)
@@ -735,7 +788,8 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             button(context, UiRect(actionX, actionY, w, 13), label, mouseX, mouseY, enabled = !pending, hint = hint, action = action)
             actionX += w + 4
         }
-        val statusText = if (pending) tr("saving") else if (livePending) tr("live.loading") else status.ifEmpty { tr(if (tab == 2) "live.immediate" else "hint") }
+        val statusText = if (pending) tr("saving") else if (tab == 3) audit.text(if (audit.pending) "loading" else "help.read_only")
+            else if (livePending) tr("live.loading") else status.ifEmpty { tr(if (tab == 2) "live.immediate" else "hint") }
         font.split(Component.literal(statusText), width - 28).take(2).forEachIndexed { index, line ->
             context.drawString(font, line, 13, height - 32 + index * 10, if (statusError) 0xFF7777 else 0xBBBBBB, false)
         }
@@ -745,7 +799,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             val tooltip = actionHint?.let { listOf(Component.literal(it)) } ?: form.tooltip(mouseX, mouseY)
             tooltip?.let { renderHelpTooltip(context, it, mouseX, mouseY) }
         }
-        dropdownState?.let { dropdown.render(context, font, mouseX, mouseY, it, ::optionLabel) { 0xAAAAFF } }
+        dropdownState?.let { dropdown.render(context, font, mouseX, mouseY, it, dropdownDisplay) { 0xAAAAFF } }
         if (itemApply != null) itemPicker.render(context, font, mouseX, mouseY, pickerState(), itemSearch)
         modal?.let { renderModal(context, mouseX, mouseY, delta, it) }
     }
@@ -760,13 +814,58 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         context.renderTooltip(font, lines.flatMap { font.split(it, maxWidth) }, mouseX, mouseY)
     }
 
+    private fun validConfigPath(file: String, path: List<String>): Boolean =
+        document.files.has(file) && runCatching { document.resolve(file, path); true }.getOrDefault(false)
+
+    private fun restoreValidConfigPath() {
+        while (segments.isNotEmpty() && !validConfigPath(selectedFile, segments)) segments.removeLast()
+    }
+
+    private fun validTabFile(file: String): Boolean = when (tab) {
+        0 -> file.endsWith("/shop.json") && document.files.has(file)
+        1 -> file.endsWith("bank.json") && document.files.has(file)
+        2 -> file.endsWith("/shop.json") && (document.files.has(file) || liveOverview?.getAsJsonArray("shops")
+            ?.any { it.asJsonObject.get("id").asString == file.split('/').getOrNull(1) } == true)
+        4 -> file in listOf("audit.json", "commands.json", "feedback.json") && document.files.has(file)
+        else -> false
+    }
+
+    private fun selectTab(index: Int) {
+        if (index == tab || index !in 0..4) return
+        form.clearFocus(); searchForm.clearFocus()
+        tabViews[tab] = TabView(selectedFile, segments.toList(), search, fileScroll)
+        if (tab !in listOf(2, 3)) filePaths[tab to selectedFile] = segments.toList()
+        tab = index
+        val previous = tabViews[index]
+        search = previous?.search.orEmpty(); fileScroll = previous?.scroll ?: 0
+        if (tab == 3) { rebuildForm(); audit.open(); return }
+        val files = visibleFiles()
+        selectedFile = previous?.file?.takeIf(::validTabFile) ?: files.firstOrNull().orEmpty()
+        segments.clear()
+        if (tab != 2) segments.addAll(if (previous?.file == selectedFile) previous.path else filePaths[tab to selectedFile].orEmpty())
+        restoreValidConfigPath()
+        if (tab == 2 && liveStock?.get("shopId")?.asString != selectedShopId()) {
+            stockPage = 0; stockValues.clear(); liveStock = null
+        }
+        rebuildForm()
+        if (tab == 2 && liveStock == null && !livePending) refreshStock()
+    }
+
     private fun selectFile(path: String) {
-        form.clearFocus(); selectedFile = path; segments.clear()
+        if (tab == 3) { audit.select(path); rebuildForm(); return }
+        if (path == selectedFile) return
+        form.clearFocus()
+        if (tab != 2) filePaths[tab to selectedFile] = segments.toList()
+        selectedFile = path; segments.clear()
+        if (tab != 2) segments.addAll(filePaths[tab to path].orEmpty())
+        restoreValidConfigPath()
         if (tab == 2) { stockPage = 0; stockValues.clear(); liveStock = null }
         rebuildForm()
         if (tab == 2 && !livePending) refreshStock()
     }
     private fun footerActions(): List<FooterAction> {
+        if (tab == 3) return listOf(FooterAction(audit.text("refresh"), audit::refresh, audit.text("help.refresh")),
+            FooterAction(audit.text("reset"), audit::resetFilters, audit.text("help.reset")))
         if (tab == 2) return listOf(FooterAction(tr("live.refresh"), {
             form.clearFocus()
             if (!livePending) requestLive("overview")
@@ -791,7 +890,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         if (selectedFile.startsWith("shops/")) actions += FooterAction(tr("delete"), { confirm(tr("confirm_delete")) {
             document.deleteFile(selectedFile); segments.clear()
             selectedFile = visibleFiles().firstOrNull() ?: "audit.json"
-            if (selectedFile == "audit.json") tab = 3
+            if (selectedFile == "audit.json") tab = 4
             rebuildForm()
         } }, tr("tooltip.delete"))
         return actions
@@ -801,7 +900,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         refreshValidation()
         validationIssues.firstOrNull()?.let { issue ->
             selectedFile = issue.file
-            tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 3 }
+            tab = when { selectedFile.endsWith("/shop.json") -> 0; selectedFile.endsWith("bank.json") -> 1; else -> 4 }
             segments.clear(); segments.addAll(issue.segments.dropLast(1))
             statusError = true; status = tr("validation.save_blocked", issue.file, tr(issue.key, *issue.args.toTypedArray()))
             rebuildForm()
@@ -866,7 +965,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             return true
         }
         dropdownState?.let { state ->
-            when (val action = dropdown.mouseClicked(font, x, y, state, ::optionLabel)) {
+            when (val action = dropdown.mouseClicked(font, x, y, state, dropdownDisplay)) {
                 is UiDropdownOverlay.Action.Toggle -> {
                     playClick()
                     if (state.multiSelect) dropdownState = state.copy(selected = if (action.option in state.selected) state.selected - action.option else state.selected + action.option)
@@ -889,7 +988,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         }
         if (pending) return true
         clickActions.firstOrNull { it.rect.contains(x, y) }?.let { playClick(); form.clearFocus(); searchForm.clearFocus(); it.action(); return true }
-        searchForm.mouseClicked(x, y, button)
+        if (tab != 3) searchForm.mouseClicked(x, y, button)
         val activeForm = form
         val consumed = activeForm.mouseClicked(x, y, button)
         if (activeForm.lastClickHandled || searchForm.lastClickHandled) playClick()
@@ -898,7 +997,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
         if (modal != null || pending) return true
-        dropdownState?.let { state -> dropdownState = state.copy(scroll = (state.scroll - verticalAmount.toInt()).coerceIn(0, dropdown.maxScroll(font, state, ::optionLabel))); return true }
+        dropdownState?.let { state -> dropdownState = state.copy(scroll = (state.scroll - verticalAmount.toInt()).coerceIn(0, dropdown.maxScroll(font, state, dropdownDisplay))); return true }
         if (itemApply != null) { itemScroll = (itemScroll - verticalAmount.toInt()).coerceIn(0, itemPicker.maxScroll(pickerState())); return true }
         if (mouseX < (width / 3).coerceIn(105, 190) + 11) { fileScroll = (fileScroll - verticalAmount.toInt()).coerceAtLeast(0); return true }
         return form.mouseScrolled(mouseX.toInt(), mouseY.toInt(), horizontalAmount, verticalAmount)
@@ -912,7 +1011,7 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
             if (itemSearchFocused) { itemSearch.keyPressed(keyCode); updateItemResults() }; return true
         }
         if (pending) return true
-        if (form.keyPressed(keyCode, scanCode, modifiers) || searchForm.keyPressed(keyCode, scanCode, modifiers)) return true
+        if (form.keyPressed(keyCode, scanCode, modifiers) || (tab != 3 && searchForm.keyPressed(keyCode, scanCode, modifiers))) return true
         return super.keyPressed(keyCode, scanCode, modifiers)
     }
 
@@ -920,6 +1019,13 @@ class CommandShopAdminScreen(snapshot: String) : Screen(Component.translatable("
         modal?.let { return it.form.charTyped(codePoint, modifiers) }
         if (itemApply != null) { if (itemSearchFocused) { itemSearch.charTyped(codePoint); updateItemResults() }; return true }
         if (pending || dropdownState != null) return true
-        return form.charTyped(codePoint, modifiers) || searchForm.charTyped(codePoint, modifiers)
+        return form.charTyped(codePoint, modifiers) || (tab != 3 && searchForm.charTyped(codePoint, modifiers))
     }
+
+    internal fun commitAuditFields() { if (tab == 3) form.clearFocus() }
+    internal fun openAuditDropdown(options: List<String>, selected: String, rect: UiRect,
+                                   display: (String) -> String, apply: (String) -> Unit) {
+        openDropdown("audit", options, setOf(selected), false, rect, display) { values -> values.firstOrNull()?.let(apply) }
+    }
+    fun acceptAuditResult(id: UUID, json: String) { audit.accept(id,json) }
 }

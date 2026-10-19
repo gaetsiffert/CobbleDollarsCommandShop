@@ -609,12 +609,17 @@ public final class ShopFiles {
     private static String createNightMarketShopJson() {
         return """
                 {
-                  "deny_message": "This market opens only after nightfall.",
-                  "conditions": {
-                    "time_ranges_any": [
-                      { "start_tick": 13000, "end_tick": 1000 }
-                    ]
-                  },
+                  "conditions": [
+                    {
+                      "time_ranges_any": [
+                        {
+                          "start_tick": 13000,
+                          "end_tick": 1000
+                        }
+                      ],
+                      "deny_message": "This market opens only after nightfall."
+                    }
+                  ],
                   "categories": [
                     {
                       "name": "Night Capture",
@@ -723,10 +728,14 @@ public final class ShopFiles {
     private static String createSyntaxShowcaseShopJson() {
         return """
                 {
-                  "deny_message": "This showcase is blocked for your current access profile.",
-                  "conditions": {
-                    "player_tags_none": ["syntax_showcase_banned"]
-                  },
+                  "conditions": [
+                    {
+                      "player_tags_none": [
+                        "syntax_showcase_banned"
+                      ],
+                      "deny_message": "This showcase is blocked for your current access profile."
+                    }
+                  ],
                   "categories": [
                     {
                       "name": "Fallback Pricing",
@@ -750,9 +759,13 @@ public final class ShopFiles {
                           },
                           "count": 16,
                           "price": 24,
-                          "conditions": {
-                            "player_tags_any": ["vip_shop"]
-                          }
+                          "conditions": [
+                            {
+                              "player_tags_any": [
+                                "vip_shop"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -782,17 +795,30 @@ public final class ShopFiles {
                             "amount": 1,
                             "every_seconds": 300
                           },
-                          "conditions": {
-                            "player_tags_any": ["quest_debug"]
-                          }
+                          "conditions": [
+                            {
+                              "player_tags_any": [
+                                "quest_debug"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
                     {
                       "name": "Condition Matrix",
-                      "conditions": {
-                        "player_tags_all": ["syntax_showcase_access", "merchant_permit"]
-                      },
+                      "conditions": [
+                        {
+                          "player_tags_all": [
+                            "syntax_showcase_access"
+                          ]
+                        },
+                        {
+                          "player_tags_all": [
+                            "merchant_permit"
+                          ]
+                        }
+                      ],
                       "offers": [
                         {
                           "id": "dawn_compass",
@@ -803,13 +829,26 @@ public final class ShopFiles {
                           },
                           "count": 1,
                           "price": 40,
-                          "conditions": {
-                            "advancements_any": ["minecraft:story/mine_stone"],
-                            "dimensions_any": ["minecraft:overworld"],
-                            "time_ranges_any": [
-                              { "start_tick": 0, "end_tick": 2000 }
-                            ]
-                          }
+                          "conditions": [
+                            {
+                              "advancements_any": [
+                                "minecraft:story/mine_stone"
+                              ]
+                            },
+                            {
+                              "dimensions_any": [
+                                "minecraft:overworld"
+                              ]
+                            },
+                            {
+                              "time_ranges_any": [
+                                {
+                                  "start_tick": 0,
+                                  "end_tick": 2000
+                                }
+                              ]
+                            }
+                          ]
                         },
                         {
                           "id": "veteran_rations",
@@ -820,15 +859,26 @@ public final class ShopFiles {
                           },
                           "count": 4,
                           "price": 90,
-                          "conditions": {
-                            "advancements_all": [
-                              "minecraft:story/mine_diamond",
-                              "minecraft:story/enter_the_nether"
-                            ],
-                            "scores_all": [
-                              { "objective": "reputation", "min": 25 }
-                            ]
-                          }
+                          "conditions": [
+                            {
+                              "advancements_all": [
+                                "minecraft:story/mine_diamond"
+                              ]
+                            },
+                            {
+                              "advancements_all": [
+                                "minecraft:story/enter_the_nether"
+                              ]
+                            },
+                            {
+                              "scores_all": [
+                                {
+                                  "objective": "reputation",
+                                  "min": 25
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -854,9 +904,13 @@ public final class ShopFiles {
                     },
                     {
                       "name": "Mod Scoped",
-                      "conditions": {
-                        "player_tags_any": ["syntax_showcase_access"]
-                      },
+                      "conditions": [
+                        {
+                          "player_tags_any": [
+                            "syntax_showcase_access"
+                          ]
+                        }
+                      ],
                       "offers": [
                         {
                           "id": "minecraft_misc",

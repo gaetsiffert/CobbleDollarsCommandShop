@@ -88,7 +88,10 @@ neoForge {
     runs {
         client {
             client()
+            gameDirectory = project.file(providers.gradleProperty('commandshops.clientTestDirectory').getOrElse('run'))
             systemProperty 'commandshops.adminUiSmokeTest', providers.gradleProperty('commandshops.adminUiSmokeTest').getOrElse('false')
+            systemProperty 'commandshops.multiplayerSmokeClient', providers.gradleProperty('commandshops.multiplayerSmokeClient').getOrElse('false')
+            systemProperty 'commandshops.multiplayerSmokeAddress', providers.gradleProperty('commandshops.multiplayerSmokeAddress').getOrElse('127.0.0.1:25576')
 
             // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
@@ -96,7 +99,11 @@ neoForge {
 
         server {
             server()
+            gameDirectory = project.file(providers.gradleProperty('commandshops.serverTestDirectory').getOrElse('run'))
             programArgument '--nogui'
+            systemProperty 'commandshops.dedicatedCompatibilityTests', providers.gradleProperty('commandshops.dedicatedCompatibilityTests').getOrElse('false')
+            systemProperty 'neoforge.enableGameTest', providers.gradleProperty('commandshops.dedicatedCompatibilityTests').getOrElse('false')
+            systemProperty 'commandshops.multiplayerSmokeServer', providers.gradleProperty('commandshops.multiplayerSmokeServer').getOrElse('false')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
@@ -221,6 +228,7 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
             neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,

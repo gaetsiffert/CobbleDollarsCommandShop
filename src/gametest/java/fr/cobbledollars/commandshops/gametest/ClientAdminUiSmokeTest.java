@@ -33,11 +33,12 @@ import net.neoforged.neoforge.client.event.RenderFrameEvent;
 public final class ClientAdminUiSmokeTest {
     private static final int SETTLE_FRAMES = 12;
     private static final String SHOP_FILE = "shops/admin_demo/shop.json";
-    private static final String[] CAPTURE_NAMES = {"admin-root.png", "admin-offers.png", "admin-offer.png", "admin-feedback.png", "admin-bank.png", "admin-conditions.png", "admin-condition.png", "admin-feedback-defaults.png", "admin-inline-error.png", "admin-stocks.png"};
+    private static final String[] CAPTURE_NAMES = {"admin-root.png", "admin-offers.png", "admin-offer.png", "admin-feedback.png", "admin-bank.png", "admin-conditions.png", "admin-condition.png", "admin-feedback-defaults.png", "admin-inline-error.png", "admin-stocks.png", "admin-audit-summary.png", "admin-audit-shops.png", "admin-audit-event.png"};
     private static final String SNAPSHOT = """
             {
               "revision": "admin-ui-smoke-fixture",
               "files": {
+                "commands.json": {"allow_player_open": true},
                 "audit.json": {
                   "enabled": true,
                   "flush_each_entry": true,
@@ -120,6 +121,8 @@ public final class ClientAdminUiSmokeTest {
                 ClientAdminOperationSmokeTest.verify(minecraft);
                 ClientAdminUsabilitySmokeTest.verify(minecraft);
                 ClientAdminLiveSmokeTest.verify(minecraft);
+                ClientAdminAuditSmokeTest.verify(minecraft);
+                ClientAdminScrollSmokeTest.verify(minecraft);
                 screen = new CommandShopAdminScreen(SNAPSHOT);
                 ClientAdminLiveSmokeTest.seed(screen, "admin_demo");
                 minecraft.setScreen(screen);
@@ -184,7 +187,7 @@ public final class ClientAdminUiSmokeTest {
                 renderedFrames = 0;
                 if (stage == CAPTURE_NAMES.length) {
                     completed = true;
-                    CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_UI_SMOKE_RESULT: PASS; 10 views rendered; ordered conditions, custom denial fields, parameter help, collection action tooltips, inherited feedback defaults, inline validation and live stock controls verified.");
+                    CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_UI_SMOKE_RESULT: PASS; 13 views rendered; ordered conditions, custom denial fields, parameter help, collection action tooltips, inherited feedback defaults, inline validation and live stock controls verified.");
                     minecraft.stop();
                     return;
                 }
@@ -193,7 +196,7 @@ public final class ClientAdminUiSmokeTest {
                 } else if (stage == 2) {
                     navigate(SHOP_FILE, 0, List.of("categories", "0", "offers", "0"));
                 } else if (stage == 3) {
-                    navigate("feedback.json", 3, List.of("buy_success"));
+                    navigate("feedback.json", 4, List.of("buy_success"));
                 } else if (stage == 4) {
                     navigate("global_bank.json", 1, List.of());
                 } else if (stage == 5) {
@@ -203,13 +206,19 @@ public final class ClientAdminUiSmokeTest {
                 } else if (stage == 7) {
                     AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
                     document.getFiles().getAsJsonObject("feedback.json").remove("buy_success");
-                    navigate("feedback.json", 3, List.of());
+                    navigate("feedback.json", 4, List.of());
                 } else if (stage == 8) {
                     AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
                     document.resolve(SHOP_FILE, List.of("categories", "0", "offers", "0")).getAsJsonObject().addProperty("price", "invalid");
                     navigate(SHOP_FILE, 0, List.of("categories", "0", "offers", "0"));
-                } else {
+                } else if (stage == 9) {
                     navigate(SHOP_FILE, 2, List.of());
+                } else if (stage == 10) {
+                    ClientAdminAuditSmokeTest.seed(screen,"summary",false);
+                } else if (stage == 11) {
+                    ClientAdminAuditSmokeTest.seed(screen,"shops",false);
+                } else {
+                    ClientAdminAuditSmokeTest.seed(screen,"journal",true);
                 }
                 capturing = false;
             } catch (Exception | AssertionError exception) {

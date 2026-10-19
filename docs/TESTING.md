@@ -62,7 +62,9 @@ Use these for end-to-end server flows:
 - menu transitions
 - player-bound runtime offer/bank resolution
 
-GameTests are the highest-fidelity layer in the repo today. They run on a dedicated `gameTestServer` launch and exercise the real server loop.
+GameTests run on a dedicated `gameTestServer` launch and exercise the real server
+loop. The separate opt-in multiplayer smoke test below also covers a real client
+connection to an ordinary dedicated server.
 
 Examples in this repo:
 
@@ -100,12 +102,122 @@ the development runtime; they do not add a required NPC dependency to the addon.
 CustomNPCs 1.21.1.20251230 expects an ordinary dedicated server and cannot initialize
 its world directory in the special GameTestServer launcher.
 
-For that combination, use an isolated development server directory and set both
-`-Dneoforge.enableGameTest=true` and `-Dcommandshops.dedicatedCompatibilityTests=true`
-on the game JVM. `DedicatedCompatibilityTestRunner` runs the registered tests and
-stops that server afterwards. Check `COMPATIBILITY_RESULT` for completion and zero
-failures. These helpers are in the GameTest source set and are excluded from the
+For that combination, use a fresh isolated development server directory, accept
+the Minecraft EULA for that test server, and run:
+
+```powershell
+./gradlew.bat runServer '-Pcommandshops.serverTestDirectory=build/release-tests/compatibility-server' '-Pcommandshops.dedicatedCompatibilityTests=true'
+```
+
+The Gradle property sets both `-Dneoforge.enableGameTest=true` and
+`-Dcommandshops.dedicatedCompatibilityTests=true` on the game JVM.
+`DedicatedCompatibilityTestRunner` runs the registered tests on the ordinary
+dedicated server and stops it afterwards. Leave this fixture's configuration
+directory fresh so the addon generates its default shops, including
+`general_store`. Reusing a customized directory that lacks the default shops is
+not a valid fixture for the full registered suite.
+
+Check `build/release-tests/compatibility-server/logs/latest.log` for
+`COMPATIBILITY_RESULT: <done> / <total> complete, <failures> failures.` Require
+`done == total`, `total > 0` and `failures == 0`. The JVM can exit successfully
+after a failed or incomplete test run, so its exit code alone is insufficient.
+These helpers are in the GameTest source set and are excluded from the
 distributed addon jar.
+
+### Isolated client/server test directories
+
+The normal `Client` and `Server` run configurations use `run` by default.
+`-Pcommandshops.clientTestDirectory=<path>` and
+`-Pcommandshops.serverTestDirectory=<path>` override their game directories for
+disposable verification runs. These properties also apply when preparing those
+run configurations for an IDE launch. They do not change `runGameTestServer` or
+the performance run directories.
+
+### Detached administrator UI smoke test
+
+Run the standalone client UI checks without connecting to a server:
+
+```powershell
+./gradlew.bat runClient '-Pcommandshops.clientTestDirectory=build/release-tests/admin-ui-client' '-Pcommandshops.adminUiSmokeTest=true'
+```
+
+`ClientAdminUiSmokeTest` checks detached forms, drafts, help, localization,
+navigation, asynchronous reply handling and rendering, then captures the
+administrator views and exits. Require `CLIENT_ADMIN_UI_SMOKE_RESULT: PASS` in
+the isolated client's `logs/latest.log`; also inspect the individual smoke
+markers for Audit, scroll retention, live controls, localization and feedback.
+Screenshots are written below that client's `screenshots` directory. This
+scenario does not establish a multiplayer connection.
+
+### Real multiplayer smoke test
+
+`DedicatedMultiplayerSmokeTest` and `ClientMultiplayerSmokeTest` exercise one
+real Minecraft client over TCP against an ordinary dedicated server. They cover
+administrator snapshot/save, rejection of a stale revision and recovery, manual
+stock changes/refills, visibility, Audit summary/journal, persisted administrator
+history and the native shop-to-bank-to-shop transition.
+
+For the conflicting edit, the server constructs a second `ServerPlayer` actor
+named `SmokeSecondAdmin` and saves through `AdminConfigService`. This is a second
+administrator identity acting on the server; it is not a second connected TCP
+client or a second administrator screen.
+
+Use two fresh disposable game directories. The server fixture writes a test
+shop/bank, enables relevant audit events and grants operator level 2 to the
+connecting client. It requires an explicit `release-smoke-isolated.txt` sentinel
+in its game directory before creating the fixture. Do not point it at a normal
+development or production game directory.
+
+Example setup, from the repository root in PowerShell, after accepting the
+Minecraft EULA for this isolated server:
+
+```powershell
+$smokeServerDir = Join-Path (Get-Location) 'build/release-tests/multiplayer-server'
+$smokeClientDir = Join-Path (Get-Location) 'build/release-tests/multiplayer-client'
+New-Item -ItemType Directory -Path $smokeServerDir, $smokeClientDir -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $smokeServerDir 'release-smoke-isolated.txt') -Value 'Disposable multiplayer verification fixture' -Encoding utf8
+Set-Content -LiteralPath (Join-Path $smokeServerDir 'eula.txt') -Value 'eula=true' -Encoding ascii
+@'
+server-ip=127.0.0.1
+server-port=25576
+online-mode=false
+level-name=release-smoke-world
+view-distance=3
+simulation-distance=3
+'@ | Set-Content -LiteralPath (Join-Path $smokeServerDir 'server.properties') -Encoding ascii
+```
+
+Start the server in one terminal:
+
+```powershell
+./gradlew.bat runServer '-Pcommandshops.serverTestDirectory=build/release-tests/multiplayer-server' '-Pcommandshops.multiplayerSmokeServer=true'
+```
+
+Wait for `MULTIPLAYER_SERVER_READY`, then start the client in another terminal:
+
+```powershell
+./gradlew.bat runClient '-Pcommandshops.clientTestDirectory=build/release-tests/multiplayer-client' '-Pcommandshops.multiplayerSmokeClient=true' '-Pcommandshops.multiplayerSmokeAddress=127.0.0.1:25576' '-Pcommandshops.adminUiSmokeTest=false'
+```
+
+Keep this unauthenticated test server bound to localhost. The default smoke
+address is `127.0.0.1:25576`; changing it requires matching server properties and
+the `commandshops.multiplayerSmokeAddress` client property. Keep
+`commandshops.dedicatedCompatibilityTests=false` for this scenario, and run the
+detached administrator UI smoke separately.
+
+The client connects from the title screen, performs its sequence and exits;
+the server verifies the final saved price and persisted history after the client
+disconnects, then stops. The client times out after 180 seconds and the server
+after 240 seconds. Both success markers are required:
+
+- Client `logs/latest.log`: `MULTIPLAYER_CLIENT_RESULT: PASS`.
+- Server `logs/latest.log`: `MULTIPLAYER_SERVER_RESULT: PASS`.
+
+Treat either `FAIL`, a missing marker or a timeout as a failed run even when the
+JVM or Gradle exits with code zero. Check the two logs under the isolated
+directories; a client PASS alone does not prove the server's final persistence
+assertions passed. These opt-in helpers are part of the GameTest source set and
+are excluded from the distributed addon JAR.
 
 ## Performance harness
 
@@ -380,12 +492,24 @@ Current coverage is intentionally strongest on:
 - command registration and selected command flows
 - session open/bank/close transitions
 - runtime offer precedence with a real player context
+- administrator draft validation, delayed replies, localization and scroll retention
+- Audit queries and administrator stock/configuration history
+- the opt-in real client/dedicated-server administrator and menu-transition flow
 - heavy benchmark reload/parse/open/refresh/sell measurements
 
 Still lighter than ideal:
 
 - full `buy` and `sell` end-to-end coverage across more edge cases
-- client UI state/rendering
-- packet-level assertions
+- client rendering across additional resolutions and resource packs
+- simultaneous edits from two independently connected administrator clients
 
 Those are the next logical additions when the test pass needs to be expanded again.
+
+
+Audit browsing is covered by `AuditQueryServiceServerTest` (active/ZIP files,
+exact currency, corruption warnings, filters, cache refresh and cursor pages),
+`CommandShopAdminAuditGameTests` (async delivery, session nonce, permissions,
+replay protection and pending permission revocation), and the opt-in
+`ClientAdminAuditSmokeTest` (all six forms, details, links, cursors, unsaved drafts,
+focused filters and English/French layout at two widths). The client smoke run
+also saves three Audit screenshots alongside the ten existing administrator views.

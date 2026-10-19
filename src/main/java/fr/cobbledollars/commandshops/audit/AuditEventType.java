@@ -7,7 +7,9 @@ public enum AuditEventType {
     BUY_FAILURE(false),
     SELL_SUCCESS(true),
     SELL_FAILURE(false),
-    VISIBILITY_CHANGED(true);
+    VISIBILITY_CHANGED(true),
+    STOCK_CHANGED(true),
+    CONFIG_CHANGED(true);
 
     private final boolean enabledByDefault;
 

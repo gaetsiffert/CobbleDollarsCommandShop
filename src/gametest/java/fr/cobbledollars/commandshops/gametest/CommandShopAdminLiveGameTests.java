@@ -1,9 +1,14 @@
 package fr.cobbledollars.commandshops.gametest;
 
+import java.nio.file.Files;
+import java.util.List;
 import java.util.UUID;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import fr.cobbledollars.commandshops.admin.runtime.AdminLiveService;
+import fr.cobbledollars.commandshops.audit.AuditFiles;
+import fr.cobbledollars.commandshops.audit.AuditLogService;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.PlayerShopStockData;
 import fr.cobbledollars.commandshops.shop.ResolvedShopOffer;
@@ -160,6 +165,131 @@ public final class CommandShopAdminLiveGameTests {
             cleanup(helper, admin, shopId);
         }
         helper.succeed();
+    }
+
+    @TestHolder(value = "manual_stock_history_records_only_effective_admin_edits", title = "Manual stock history identifies administrators, owners and concrete variants")
+    @GameTest(batch = "admin_live.stock_history", timeoutTicks = 200, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void manual_stock_history_records_only_effective_admin_edits(ExtendedGameTestHelper helper) throws Exception {
+        GameTestPlayer admin = admin(helper);
+        GameTestPlayer other = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        var server = helper.getLevel().getServer();
+        String shopId = "gametest_admin_live_stock_history";
+        UUID offline = UUID.randomUUID();
+        AuditFiles.ensureDefaultConfigExists();
+        String originalAuditConfig = Files.readString(AuditFiles.getConfigFile());
+        try {
+            JsonObject config = JsonParser.parseString(originalAuditConfig).getAsJsonObject();
+            config.addProperty("enabled", true);
+            JsonObject events = config.has("events") ? config.getAsJsonObject("events") : new JsonObject();
+            config.add("events", events);
+            events.addProperty("stock_changed", true);
+            Files.writeString(AuditFiles.getConfigFile(), config.toString());
+            AuditLogService.reload();
+            CommandShopGameTestSupport.writeShopJson(shopId, """
+                    { "categories": [{ "name": "History", "offers": [
+                      { "id": "gems", "match": { "include": [
+                        { "item": "minecraft:emerald" }, { "item": "minecraft:diamond" }
+                      ] }, "price": 5, "stock": 5,
+                        "restock": { "type": "interval", "amount": 2, "every_seconds": 60 } }
+                    ] }] }
+                    """);
+            ShopRegistry.reload(helper.getLevel().registryAccess());
+            ShopDefinition shop = ShopRegistry.getShop(shopId);
+            var variants = shop.getOfferById("gems").createResolvedOffers();
+            ResolvedShopOffer first = variants.getFirst();
+            ResolvedShopOffer second = variants.getLast();
+            PlayerShopStockData data = PlayerShopStockData.get(server);
+
+            UUID edit = UUID.randomUUID();
+            AdminLiveService.execute(admin, edit, "set_stock", shopId, offline.toString(), "gems", first.stockKey(), 1, false, "", false);
+            List<JsonObject> logged = stockHistory(shopId);
+            helper.assertValueEqual(1, logged.size(), "One concrete manual edit must create one event.");
+            JsonObject entry = logged.getFirst();
+            helper.assertValueEqual(edit.toString(), entry.get("operation_id").getAsString(), "The request identity must be retained.");
+            helper.assertValueEqual("set_stock", entry.get("action").getAsString(), "The manual action must be named.");
+            helper.assertValueEqual(admin.getStringUUID(), entry.get("actor_uuid").getAsString(), "The administrator UUID must be retained.");
+            helper.assertValueEqual(admin.getGameProfile().getName(), entry.get("actor_name").getAsString(), "The administrator name must be retained.");
+            helper.assertValueEqual(offline.toString(), entry.get("player_uuid").getAsString(), "The affected offline owner must be distinct from the actor.");
+            helper.assertValueEqual("gems", entry.get("offer_id").getAsString(), "The source offer must be retained.");
+            helper.assertValueEqual(first.stockKey(), entry.get("stock_key").getAsString(), "The exact concrete variant must be retained.");
+            helper.assertTrue(entry.get("item_id").getAsString().startsWith("minecraft:"), "The concrete item ID must be retained.");
+            helper.assertValueEqual(5, entry.get("stock_before").getAsInt(), "Before must be the remaining bundle count.");
+            helper.assertValueEqual(1, entry.get("stock_after").getAsInt(), "After must be the persisted remaining bundle count.");
+            var stockFile = server.getWorldPath(LevelResource.ROOT).resolve("data/cobbledollarscommandshops_player_stock.dat");
+            CompoundTag persisted = NbtIo.readCompressed(stockFile, NbtAccounter.unlimitedHeap());
+            helper.assertValueEqual(1, persisted.getCompound("data").getCompound("players").getCompound(offline.toString())
+                    .getCompound(shopId).getCompound(first.stockKey()).getInt("stock"), "The stock record must be on disk when its event is published.");
+
+            request(admin, "stock", shopId, offline.toString(), "", "", 0, false, "", false);
+            request(admin, "overview", "", "", "", "", 0, false, "", false);
+            request(admin, "set_stock", shopId, offline.toString(), "gems", first.stockKey(), 1, false, "", false);
+            request(admin, "restock_offer", shopId, offline.toString(), "gems", second.stockKey(), 0, false, "", false);
+            assertRejected(helper, () -> request(admin, "set_stock", shopId, "", "gems", first.stockKey(), 6, false, "", true));
+            boolean denied = false;
+            try {
+                request(other, "set_stock", shopId, offline.toString(), "gems", first.stockKey(), 0, false, "", false);
+            } catch (SecurityException expected) {
+                denied = true;
+            }
+            helper.assertTrue(denied, "An unauthorized manual edit must be rejected.");
+            data.consumeStock(offline, shop, first, 1, System.currentTimeMillis());
+            helper.assertValueEqual(1, stockHistory(shopId).size(), "Reads, no-ops, rejections and ordinary stock consumption must not create manual history.");
+
+            request(admin, "restock_offer", shopId, offline.toString(), "gems", "", 0, false, "", false);
+            helper.assertValueEqual(2, stockHistory(shopId).size(), "Refilling all variants must record only the depleted variant.");
+            helper.assertValueEqual("restock_offer", stockHistory(shopId).getLast().get("action").getAsString(), "An offer refill must be identified.");
+            data.setRemainingStock(offline, shop, first, 2, System.currentTimeMillis());
+            data.setRemainingStock(offline, shop, second, 3, System.currentTimeMillis());
+            UUID refill = UUID.randomUUID();
+            AdminLiveService.execute(admin, refill, "restock_shop", shopId, offline.toString(), "", "", 0, false, "", false);
+            List<JsonObject> refillEntries = stockHistory(shopId).stream()
+                    .filter(row -> row.get("operation_id").getAsString().equals(refill.toString())).toList();
+            helper.assertValueEqual(2, refillEntries.size(), "Whole-shop refill must group its two changed variants under one operation.");
+            helper.assertTrue(refillEntries.stream().allMatch(row -> row.get("action").getAsString().equals("restock_shop")
+                    && row.get("stock_after").getAsInt() == 5), "Each whole-shop event must describe its resulting full stock.");
+
+            UUID bulk = UUID.randomUUID();
+            int onlineCount = server.getPlayerList().getPlayers().size();
+            AdminLiveService.execute(admin, bulk, "set_stock", shopId, admin.getStringUUID(), "gems", first.stockKey(), 2, false, "", true);
+            List<JsonObject> bulkEntries = stockHistory(shopId).stream()
+                    .filter(row -> row.get("operation_id").getAsString().equals(bulk.toString())).toList();
+            helper.assertValueEqual(onlineCount, bulkEntries.size(), "A bulk edit must identify every changed online owner under one operation.");
+            helper.assertTrue(bulkEntries.stream().anyMatch(row -> row.get("player_uuid").getAsString().equals(other.getStringUUID())), "Bulk history must include the other online player.");
+            helper.assertValueEqual(5, data.resolveStock(offline, shop, first, System.currentTimeMillis()), "Online bulk edits must not affect offline owners.");
+
+            int beforeAutomatic = stockHistory(shopId).size();
+            data.setRemainingStock(offline, shop, first, 0, System.currentTimeMillis() - 61_000L);
+            data.resolveStock(offline, shop, first, System.currentTimeMillis());
+            helper.assertValueEqual(beforeAutomatic, stockHistory(shopId).size(), "An automatic interval refill must not create manual history.");
+            data.setRemainingStock(offline, shop, first, 0, System.currentTimeMillis() - 61_000L);
+            request(admin, "set_stock", shopId, offline.toString(), "gems", first.stockKey(), 1, false, "", false);
+            helper.assertValueEqual(2, stockHistory(shopId).getLast().get("stock_before").getAsInt(), "Pending automatic stock must be settled before measuring the manual delta.");
+            helper.assertValueEqual(1, stockHistory(shopId).getLast().get("stock_after").getAsInt(), "Only the subsequent manual quantity must be recorded.");
+
+            int beforeDisabled = stockHistory(shopId).size();
+            events.addProperty("stock_changed", false);
+            Files.writeString(AuditFiles.getConfigFile(), config.toString());
+            AuditLogService.reload();
+            request(admin, "set_stock", shopId, offline.toString(), "gems", first.stockKey(), 4, false, "", false);
+            helper.assertValueEqual(4, data.resolveStock(offline, shop, first, System.currentTimeMillis()), "Disabling history must preserve the manual edit itself.");
+            helper.assertValueEqual(beforeDisabled, stockHistory(shopId).size(), "Disabling manual stock history must suppress its entries.");
+        } finally {
+            Files.writeString(AuditFiles.getConfigFile(), originalAuditConfig);
+            AuditLogService.reload();
+            cleanup(helper, admin, shopId);
+        }
+        helper.succeed();
+    }
+
+    private static List<JsonObject> stockHistory(String shopId) throws Exception {
+        AuditLogService.prepareRead();
+        if (!Files.exists(AuditLogService.getLogFile())) return List.of();
+        try (var lines = Files.lines(AuditLogService.getLogFile())) {
+            return lines.map(line -> JsonParser.parseString(line).getAsJsonObject())
+                    .filter(event -> event.get("type").getAsString().equals("stock_changed")
+                            && event.get("shop_id").getAsString().equals(shopId)).toList();
+        }
     }
 
     private static GameTestPlayer admin(ExtendedGameTestHelper helper) {

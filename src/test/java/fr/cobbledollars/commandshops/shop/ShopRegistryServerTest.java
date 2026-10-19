@@ -1,6 +1,7 @@
 package fr.cobbledollars.commandshops.shop;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,8 +12,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.fml.ModList;
 import net.neoforged.testframework.junit.EphemeralTestServerProvider;
@@ -64,7 +70,81 @@ class ShopRegistryServerTest {
             ShopDefinition nightMarket = ShopRegistry.getShop("night_market");
             assertNotNull(nightMarket);
             assertTrue(nightMarket.hasTimeConditions());
-            assertTrue(nightMarket.denyMessage() != null && !nightMarket.denyMessage().isBlank());
+            assertNull(nightMarket.denyMessage());
+            assertEquals("This market opens only after nightfall.", nightMarket.conditions()
+                    .firstFailure(context(Set.of(), 6000, Map.of())).denyMessage());
+        }
+    }
+
+    @Test
+    void generated_defaults_use_modern_formats_without_changing_condition_semantics(MinecraftServer server) throws IOException {
+        deleteRecursively(ShopRegistry.getShopDirectory());
+        Files.deleteIfExists(ShopRegistry.getGlobalBankFile());
+        ShopRegistry.initialize(server.registryAccess());
+
+        JsonElement globalBank = JsonParser.parseString(Files.readString(ShopRegistry.getGlobalBankFile()));
+        assertTrue(globalBank.isJsonObject(), "A fresh global bank must support root settings without conversion.");
+        assertTrue(globalBank.getAsJsonObject().get("categories").isJsonArray());
+        int conditionBlocks = 0;
+        try (var paths = Files.walk(ShopRegistry.getShopDirectory())) {
+            for (Path file : paths.filter(Files::isRegularFile).filter(path -> path.toString().endsWith(".json")).toList()) {
+                JsonElement root = JsonParser.parseString(Files.readString(file));
+                assertTrue(root.isJsonObject(), "Fresh shops and banks must use object roots: " + file);
+                assertFalse(root.getAsJsonObject().has("deny_message"), "Fresh access messages belong to their condition rule: " + file);
+                conditionBlocks += assertOrderedConditionBlocks(root, file.toString());
+            }
+        }
+        assertTrue(conditionBlocks > 0, "The recursive format check must include the generated showcase conditions.");
+
+        ShopDefinition showcase = ShopRegistry.getShop("syntax_showcase");
+        ConditionSet.Failure blocked = showcase.conditions().firstFailure(context(Set.of("syntax_showcase_banned"), 6000, Map.of()));
+        assertEquals("player_tags_none", blocked.type());
+        assertEquals("This showcase is blocked for your current access profile.", blocked.denyMessage());
+        assertNull(showcase.conditions().firstFailure(context(Set.of(), 6000, Map.of())));
+
+        ConditionSet categoryAccess = showcase.categories().stream().filter(category -> category.name().equals("Condition Matrix"))
+                .findFirst().orElseThrow().conditions();
+        assertEquals("player_tags_all", categoryAccess.firstFailure(context(Set.of("syntax_showcase_access"), 6000, Map.of())).type());
+        assertNull(categoryAccess.firstFailure(context(Set.of("syntax_showcase_access", "merchant_permit"), 6000, Map.of())));
+
+        ConditionSet quartzAccess = ShopRegistry.getBankDefinition("syntax_showcase").categories().stream()
+                .flatMap(category -> category.offers().stream()).filter(offer -> offer.price().intValueExact() == 9)
+                .findFirst().orElseThrow().conditions();
+        assertEquals("player_tags_all", quartzAccess.firstFailure(context(Set.of(), 6000, Map.of())).type(),
+                "Modern examples must keep the legacy evaluator's family order, independent of JSON member order.");
+        assertEquals("advancements_all", quartzAccess.firstFailure(context(Set.of("syntax_showcase_access", "merchant_permit"), 6000, Map.of())).type());
+        assertNull(quartzAccess.firstFailure(context(Set.of("syntax_showcase_access", "merchant_permit"), 6000,
+                Map.of(ResourceLocation.parse("minecraft:story/mine_diamond"), true,
+                        ResourceLocation.parse("minecraft:story/enter_the_nether"), true))));
+    }
+
+    @Test
+    void generating_defaults_never_rewrites_existing_legacy_files(MinecraftServer server) throws IOException {
+        deleteRecursively(ShopRegistry.getShopDirectory());
+        ShopRegistry.initialize(server.registryAccess());
+        Path shop = ShopRegistry.getShopDirectory().resolve("syntax_showcase/shop.json");
+        Path bank = ShopRegistry.getShopDirectory().resolve("syntax_showcase/bank.json");
+        String legacyShop = "{\"deny_message\":\"Existing access message\",\"conditions\":{\"player_tags_none\":[\"blocked\"]},\"categories\":[]}\n";
+        String legacyBank = "[ ]\n";
+        byte[] originalGlobalBank = Files.readAllBytes(ShopRegistry.getGlobalBankFile());
+        try {
+            Files.writeString(shop, legacyShop);
+            Files.writeString(bank, legacyBank);
+            Files.writeString(ShopRegistry.getGlobalBankFile(), legacyBank);
+
+            ShopFiles.ensureDefaultShopsExist();
+            BankFiles.ensureDefaultGlobalBankExists();
+            ShopRegistry.reload(server.registryAccess());
+
+            assertEquals(legacyShop, Files.readString(shop));
+            assertEquals(legacyBank, Files.readString(bank));
+            assertEquals(legacyBank, Files.readString(ShopRegistry.getGlobalBankFile()));
+            assertEquals("Existing access message", ShopRegistry.getShop("syntax_showcase").denyMessage());
+            assertEquals("player_tags_none", ShopRegistry.getShop("syntax_showcase").conditions()
+                    .firstFailure(context(Set.of("blocked"), 6000, Map.of())).type());
+            assertTrue(ShopRegistry.getBankDefinition("syntax_showcase").categories().getFirst().offers().isEmpty());
+        } finally {
+            Files.write(ShopRegistry.getGlobalBankFile(), originalGlobalBank);
         }
     }
 
@@ -268,6 +348,26 @@ class ShopRegistryServerTest {
         assertEquals(initialSummary.shopCount(), ShopRegistry.listShopIds().size());
         assertEquals(initialShopIds, ShopRegistry.listShopIds());
         assertEquals(customBankFile, ShopRegistry.getBankDefinition(INVALID_BANK_SHOP_ID).sourceFile());
+    }
+
+    private static int assertOrderedConditionBlocks(JsonElement element, String file) {
+        int blocks = 0;
+        if (element.isJsonObject()) {
+            for (var entry : element.getAsJsonObject().entrySet()) {
+                if (entry.getKey().equals("conditions")) {
+                    assertTrue(entry.getValue().isJsonArray(), "A generated condition must already be an ordered list: " + file);
+                    blocks++;
+                }
+                blocks += assertOrderedConditionBlocks(entry.getValue(), file);
+            }
+        } else if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) blocks += assertOrderedConditionBlocks(child, file);
+        }
+        return blocks;
+    }
+
+    private static ConditionSet.ConditionContext context(Set<String> tags, long time, Map<ResourceLocation, Boolean> advancements) {
+        return new ConditionSet.ConditionContext(tags, ResourceLocation.parse("minecraft:overworld"), time, advancements, Map.of());
     }
 
     private static String simpleShopJson(String offerId, String itemId, int price) {

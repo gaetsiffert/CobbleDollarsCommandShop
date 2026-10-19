@@ -87,14 +87,24 @@ object AdminConfigSchema {
         put("deny_message", optional(text()))
     })
 
-    // Both forms remain editable. Traversal chooses fields for objects and element for arrays.
-    val conditions = conditionGroups.copy(element = visibilityConditionRule)
-    val accessConditions = conditions.copy(defaultJson = "[]", element = accessConditionRule)
+    // New access and visibility conditions use ordered rules. Fields still describe existing objects.
+    val conditions = conditionGroups.copy(defaultJson = "[]", element = visibilityConditionRule)
+    val accessConditions = conditions.copy(element = accessConditionRule)
 
     fun isConditionRule(schema: ConfigSchema): Boolean =
         schema === visibilityConditionRule || schema === accessConditionRule
 
     fun isConditions(schema: ConfigSchema): Boolean = schema === conditions || schema === accessConditions
+
+    /** Flattening may discard only known empty conditions, never extensions or malformed values. */
+    fun canDiscardConditions(value: JsonElement?): Boolean = when {
+        value == null || value.isJsonNull -> true
+        value.isJsonArray -> value.asJsonArray.isEmpty
+        value.isJsonObject -> value.asJsonObject.entrySet().all { (key, group) ->
+            key in conditionTypes && (group.isJsonNull || group.isJsonArray && group.asJsonArray.isEmpty)
+        }
+        else -> false
+    }
 
     /** Split independent requirements, keep alternatives grouped, and preserve the evaluator order. */
     fun orderedConditions(legacy: JsonObject): JsonArray {
@@ -188,12 +198,14 @@ object AdminConfigSchema {
         .map { it to optional(feedbackEvent(it.endsWith("failure") || it == "shop_denied", it == "shop_denied")) }.toTypedArray())
     val audit = obj(
         "enabled" to optional(bool(true)), "flush_each_entry" to optional(bool(true)),
-        "events" to optional(obj(*listOf("buy_success", "buy_failure", "sell_success", "sell_failure", "visibility_changed")
+        "events" to optional(obj(*listOf("buy_success", "buy_failure", "sell_success", "sell_failure", "visibility_changed", "stock_changed", "config_changed")
             .map { it to optional(bool(!it.endsWith("failure"))) }.toTypedArray()))
     )
+    val commands = obj("allow_player_open" to optional(bool(true)))
 
     fun forFile(path: String, value: JsonElement): ConfigSchema = when {
         path == "audit.json" -> audit
+        path == "commands.json" -> commands
         path == "feedback.json" -> feedback
         path.endsWith("shop.json") -> shop
         value.isJsonArray -> list(bankOffer) // Legacy flat bank format is preserved.

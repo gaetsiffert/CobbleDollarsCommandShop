@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonObject;
 import fr.cobbledollars.commandshops.CobbleDollarsCommandShopsMod;
 import fr.cobbledollars.commandshops.client.admin.AdminEditorDocument;
@@ -53,6 +54,8 @@ final class ClientAdminUsabilitySmokeTest {
     static void verify(Minecraft minecraft) throws Exception {
         Screen previousScreen = minecraft.screen;
         try {
+            verifyModernConditionCreation(minecraft);
+            verifyBankFlattening(minecraft);
             CommandShopAdminScreen screen = new CommandShopAdminScreen(SNAPSHOT);
             minecraft.setScreen(screen);
             AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
@@ -64,7 +67,84 @@ final class ClientAdminUsabilitySmokeTest {
         } finally {
             minecraft.setScreen(previousScreen);
         }
-        CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_USABILITY_RESULT: PASS; repeated selections preserve parameters; effective feedback defaults, customization/reset, condition deletion confirmation, inline validation/save guard and actual local sound preview verified.");
+        CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_USABILITY_RESULT: PASS; new conditions use ordered rules; bank flattening permits empty conditions and preserves active/unknown/malformed conditions; repeated selections preserve parameters; effective feedback defaults, customization/reset, condition deletion confirmation, inline validation/save guard and actual local sound preview verified.");
+    }
+
+    private static void verifyBankFlattening(Minecraft minecraft) throws Exception {
+        List<String> harmless = List.of("absent", "null", "[]", "{}", "{\"player_tags_all\":[],\"scores_all\":null}");
+        List<String> protectedValues = List.of("[{\"player_tags_all\":[\"member\"]}]", "{\"dimensions_any\":[\"minecraft:overworld\"]}",
+                "{\"extension\":[]}", "{\"scores_all\":{}}", "[{}]", "true");
+        java.util.ArrayList<String> cases = new java.util.ArrayList<>(harmless);
+        cases.addAll(protectedValues);
+        for (String condition : cases) {
+            JsonObject snapshot = JsonParser.parseString("""
+                    {"revision":"bank-flattening","files":{"audit.json":{},"feedback.json":{},"global_bank.json":{
+                      "conditions":[{"dimensions_any":["minecraft:overworld"]}],
+                      "categories":[
+                        {"name":"First","offers":[{"match":{"include":[{"item":"minecraft:stone"}]},"price":9007199254740993,
+                          "conditions":[{"player_tags_all":["member"]}]}]},
+                        {"name":"Second","conditions":[],"offers":[{"match":{"include":[{"item":"minecraft:dirt"}]},"price":2}]}
+                      ]
+                    }}}
+                    """).getAsJsonObject();
+            JsonObject first = snapshot.getAsJsonObject("files").getAsJsonObject("global_bank.json").getAsJsonArray("categories").get(0).getAsJsonObject();
+            if (!condition.equals("absent")) first.add("conditions", JsonParser.parseString(condition));
+            CommandShopAdminScreen screen = new CommandShopAdminScreen(snapshot.toString());
+            minecraft.setScreen(screen);
+            AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
+            JsonObject bank = document.getFiles().getAsJsonObject("global_bank.json");
+            JsonElement access = bank.get("conditions").deepCopy();
+            com.google.gson.JsonArray expectedOffers = new com.google.gson.JsonArray();
+            bank.getAsJsonArray("categories").forEach(category -> category.getAsJsonObject().getAsJsonArray("offers").forEach(offer -> expectedOffers.add(offer.deepCopy())));
+            String before = document.serialize();
+            navigate(minecraft, screen, "global_bank.json", List.of());
+            invokeAction(actionRow(screen, tr("bank_format")), tr("bank_to_flat"));
+            if (harmless.contains(condition)) {
+                require(!(boolean) field(screen, "statusError") && !bank.has("categories") && expectedOffers.equals(bank.get("offers")),
+                        "Empty category conditions prevented lossless bank flattening: " + condition);
+                require(access.equals(bank.get("conditions")), "Flattening discarded bank-wide access conditions.");
+            } else {
+                require((boolean) field(screen, "statusError") && before.equals(document.serialize()),
+                        "Flattening discarded active, unknown or malformed category conditions: " + condition);
+            }
+        }
+    }
+
+    private static void verifyModernConditionCreation(Minecraft minecraft) throws Exception {
+        CommandShopAdminScreen screen = new CommandShopAdminScreen("""
+                {"revision":"new-condition-defaults","files":{
+                  "audit.json":{},"feedback.json":{},
+                  "global_bank.json":{"categories":[{"name":"Bank","offers":[{
+                    "match":{"include":[{"item":"minecraft:stone"}]},"price":1
+                  }]}]},
+                  "shops/usability/shop.json":{"categories":[{"name":"Shop","offers":[{
+                    "id":"stone","match":{"include":[{"item":"minecraft:stone"}]},"price":1
+                  }]}]}
+                }}
+                """);
+        minecraft.setScreen(screen);
+        AdminEditorDocument document = (AdminEditorDocument) field(screen, "document");
+        for (String file : List.of(SHOP, "global_bank.json")) {
+            for (List<String> parent : List.of(List.<String>of(), List.of("categories", "0"), OFFER)) {
+                navigate(minecraft, screen, file, parent);
+                invokeAction(actionRow(screen, tr("field.conditions")), tr("add"));
+                java.util.ArrayList<String> path = new java.util.ArrayList<>(parent);
+                path.add("conditions");
+                JsonElement conditions = document.resolve(file, path);
+                require(conditions.isJsonArray() && conditions.getAsJsonArray().isEmpty(),
+                        "Adding conditions created an old object at " + file + ": " + path);
+                navigate(minecraft, screen, file, path);
+                for (UiComponent row : components(screen)) {
+                    UiComponent control = unwrap(row);
+                    if (control.getClass().getSimpleName().equals("AdminActionRow"))
+                        require(!tr("condition_order").equals(field(control, "label")), "New conditions must not offer legacy conversion.");
+                }
+                invokeAction(actionRow(screen, tr("condition")), tr("add"));
+                require(conditions.getAsJsonArray().size() == 1
+                                && conditions.getAsJsonArray().get(0).getAsJsonObject().has("player_tags_all"),
+                        "A new ordered condition must immediately contain an editable rule.");
+            }
+        }
     }
 
     private static void verifySameSelections(Minecraft minecraft, CommandShopAdminScreen screen, AdminEditorDocument document) throws Exception {
@@ -220,7 +300,7 @@ final class ClientAdminUsabilitySmokeTest {
     private static void navigate(Minecraft minecraft, CommandShopAdminScreen screen, String file, List<String> path) throws Exception {
         ((UiForm) field(screen, "form")).clearFocus();
         setField(screen, "selectedFile", file);
-        setField(screen, "tab", file.endsWith("/shop.json") ? 0 : file.endsWith("bank.json") ? 1 : 3);
+        setField(screen, "tab", file.endsWith("/shop.json") ? 0 : file.endsWith("bank.json") ? 1 : 4);
         List<String> segments = (List<String>) field(screen, "segments");
         segments.clear();
         segments.addAll(path);

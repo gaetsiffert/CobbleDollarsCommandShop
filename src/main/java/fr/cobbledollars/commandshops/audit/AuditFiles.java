@@ -54,7 +54,9 @@ public final class AuditFiles {
                     "buy_failure": false,
                     "sell_success": true,
                     "sell_failure": false,
-                    "visibility_changed": true
+                    "visibility_changed": true,
+                    "stock_changed": true,
+                    "config_changed": true
                   }
                 }
                 """;

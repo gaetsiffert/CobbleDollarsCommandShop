@@ -83,7 +83,7 @@ final class ClientAdminLiveSmokeTest {
             require(draft.equals(screen.currentDraft()), "Returning to Shops discarded the draft.");
 
             CommandShopAdminScreen settings = new CommandShopAdminScreen("{\"revision\":\"settings\",\"files\":{\"audit.json\":{}}}");
-            require(((Number) field(settings, "tab")).intValue() == 3, "Settings must be the fourth tab, after Stocks.");
+            require(((Number) field(settings, "tab")).intValue() == 4, "Settings must be the fifth tab, after Audit.");
             verifyLayoutVariants(minecraft);
         } finally {
             minecraft.setScreen(previous);

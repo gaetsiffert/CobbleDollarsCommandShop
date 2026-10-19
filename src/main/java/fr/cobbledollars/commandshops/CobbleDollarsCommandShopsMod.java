@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 
 import fr.cobbledollars.commandshops.audit.AuditLogService;
+import fr.cobbledollars.commandshops.admin.config.AdminConfigService;
 import fr.cobbledollars.commandshops.command.CommandShopCommands;
+import fr.cobbledollars.commandshops.command.CommandSettings;
 import fr.cobbledollars.commandshops.feedback.ShopFeedbackService;
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
 import fr.cobbledollars.commandshops.shop.ShopRegistry;
@@ -35,9 +37,11 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         try {
+            CommandSettings.initialize();
             ShopRegistry.initialize(event.getServer().registryAccess());
             ShopFeedbackService.initialize();
             AuditLogService.initialize();
+            AdminConfigService.rememberAppliedConfiguration();
         } catch (IOException exception) {
             LOGGER.error("Failed to prepare NPC shop directory", exception);
         }
@@ -63,8 +67,10 @@ public class CobbleDollarsCommandShopsMod {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         AuditLogService.shutdown();
+        AdminConfigService.clearAppliedConfiguration();
         CommandShopSessions.cleanupAll();
         ShopFeedbackService.clear();
+        CommandSettings.clear();
         ShopRegistry.clear();
     }
 

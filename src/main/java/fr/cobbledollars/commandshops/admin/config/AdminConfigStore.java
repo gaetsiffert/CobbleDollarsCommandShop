@@ -31,7 +31,7 @@ final class AdminConfigStore {
     static final int MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
     static final int MAX_FILE_BYTES = 2 * 1024 * 1024;
     static final int MAX_FILES = 1024;
-    private static final Set<String> REQUIRED_FILES = Set.of("audit.json", "feedback.json", "global_bank.json");
+    private static final Set<String> REQUIRED_FILES = Set.of("audit.json", "commands.json", "feedback.json", "global_bank.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private final Path root;
@@ -45,6 +45,10 @@ final class AdminConfigStore {
     }
 
     synchronized String save(String snapshotJson, Validator validator, Activation activation) throws IOException {
+        return save(snapshotJson, validator, activation, new ChangeObserver() { });
+    }
+
+    synchronized String save(String snapshotJson, Validator validator, Activation activation, ChangeObserver observer) throws IOException {
         JsonObject submitted = parseObject(snapshotJson);
         JsonElement revision = submitted.get("revision");
         if (revision == null || !revision.isJsonPrimitive() || !revision.getAsJsonPrimitive().isString()) {
@@ -79,6 +83,7 @@ final class AdminConfigStore {
         Path staging = Files.createTempDirectory(root, ".admin-config-");
         Map<String, Path> stagedFiles = new LinkedHashMap<>();
         boolean mutationStarted = false;
+        boolean prepared = false;
         try {
             int index = 0;
             for (var entry : desiredBytes.entrySet()) {
@@ -88,6 +93,9 @@ final class AdminConfigStore {
                     stagedFiles.put(entry.getKey(), staged);
                 }
             }
+            requireCurrentRevision(before.revision(), readState().revision());
+            observer.prepare(Map.copyOf(before.files()), Map.copyOf(proposed));
+            prepared = true;
             requireCurrentRevision(before.revision(), readState().revision());
             mutationStarted = true;
             for (var entry : stagedFiles.entrySet()) {
@@ -105,7 +113,9 @@ final class AdminConfigStore {
                 Files.delete(resolve("shops/" + shopId + "/shop.json").getParent());
             }
             activation.activate();
-            return encodeSnapshot(readState());
+            String updated = encodeSnapshot(readState());
+            observer.complete("applied");
+            return updated;
         } catch (Exception exception) {
             IOException failure = exception instanceof IOException io ? io : new IOException(exception.getMessage(), exception);
             if (mutationStarted) {
@@ -118,9 +128,11 @@ final class AdminConfigStore {
                             "Saving failed and restoring the previous configuration failed: %s; %s",
                             failure.getMessage(), rollbackFailure.getMessage());
                     restoreFailure.initCause(failure);
+                    if (prepared) observer.complete("rollback_failed");
                     throw restoreFailure;
                 }
             }
+            if (prepared) observer.complete(mutationStarted ? "rolled_back" : "failed");
             throw failure;
         } finally {
             cleanupStaging(staging);
@@ -212,7 +224,7 @@ final class AdminConfigStore {
             proposed.put(entry.getKey(), entry.getValue().deepCopy());
         }
         if (!proposed.keySet().containsAll(REQUIRED_FILES)) {
-            throw AdminMessages.io("store.required_files", "audit.json, feedback.json and global_bank.json are required.");
+            throw AdminMessages.io("store.required_files", "audit.json, commands.json, feedback.json and global_bank.json are required.");
         }
         for (String path : proposed.keySet()) {
             if (path.startsWith("shops/") && path.endsWith("/bank.json")
@@ -423,6 +435,12 @@ final class AdminConfigStore {
         } catch (IOException ignored) {
             // Staging files are never loaded as configuration; a cleanup failure must not undo a commit.
         }
+    }
+
+    interface ChangeObserver {
+        default void prepare(Map<String, JsonElement> before, Map<String, JsonElement> after) throws IOException { }
+        // Outcome recording must never roll back a successfully activated edit.
+        default void complete(String outcome) { }
     }
 
     @FunctionalInterface

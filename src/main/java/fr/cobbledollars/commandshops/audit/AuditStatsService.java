@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipInputStream;
 
 public final class AuditStatsService {
@@ -35,7 +36,7 @@ public final class AuditStatsService {
             return AuditStatsSnapshot.empty(window);
         }
 
-        MutableSnapshot snapshot = new MutableSnapshot(window);
+        Accumulator snapshot = new Accumulator(window);
         for (Path logFile : logFiles) {
             try (BufferedReader reader = openReader(logFile)) {
                 String line;
@@ -128,13 +129,53 @@ public final class AuditStatsService {
         return element.getAsJsonArray();
     }
 
-    private static final class MutableSnapshot {
+    /** Validate before accumulation so a corrupt record cannot partially change totals. */
+    static void validateEvent(AuditEventType type, JsonObject event) {
+        if (type != AuditEventType.CONFIG_CHANGED) readString(event, "shop_id");
+        if (type == AuditEventType.BUY_SUCCESS || type == AuditEventType.SELL_SUCCESS) {
+            readString(event, "player_uuid");
+            readString(event, "player_name");
+            readBigInteger(event, "currency_amount", BigInteger.ZERO);
+            readLong(event, "item_count_total", 0L);
+            if (type == AuditEventType.BUY_SUCCESS) {
+                readString(event, "offer_id");
+                readLong(event, "bundle_count", 0L);
+            }
+            for (JsonElement element : readArray(event, "item_lines")) {
+                JsonObject line = element.getAsJsonObject();
+                readString(line, "item");
+                readLong(line, "count", 0L);
+                readBigInteger(line, "line_total", BigInteger.ZERO);
+            }
+        } else if (type == AuditEventType.BUY_FAILURE || type == AuditEventType.SELL_FAILURE) {
+            if (event.has("player_uuid") && event.has("player_name")) {
+                readString(event, "player_uuid");
+                readString(event, "player_name");
+            }
+            if (event.has("offer_id") && !event.get("offer_id").isJsonNull()) readString(event, "offer_id");
+        } else if (type == AuditEventType.STOCK_CHANGED) {
+            readString(event, "actor_name"); readString(event, "actor_uuid");
+            readString(event, "player_uuid"); readString(event, "player_name");
+            readString(event, "offer_id"); readString(event, "stock_key");
+            readString(event, "operation_id"); readString(event, "action");
+            readLong(event, "stock_before", 0L); readLong(event, "stock_after", 0L);
+        } else if (type == AuditEventType.CONFIG_CHANGED) {
+            readString(event, "actor_name"); readString(event, "operation_id");
+            String phase = readString(event, "phase");
+            if (!Set.of("prepared", "applied", "rolled_back", "rollback_failed", "failed", "activation_failed").contains(phase))
+                throw new IllegalArgumentException("Unknown configuration audit phase.");
+        }
+    }
+
+    static final class Accumulator {
         private final AuditTimeWindow window;
         private long buySuccessCount;
         private long buyFailureCount;
         private long sellSuccessCount;
         private long sellFailureCount;
         private long visibilityChangeCount;
+        private long stockChangeCount;
+        private long configChangeCount;
         private BigInteger totalSpent = BigInteger.ZERO;
         private BigInteger totalEarned = BigInteger.ZERO;
         private final Map<String, MutableShopStats> shops = new HashMap<>();
@@ -142,17 +183,24 @@ public final class AuditStatsService {
         private final Map<String, MutablePlayerStats> players = new HashMap<>();
         private final Map<String, MutableItemStats> items = new HashMap<>();
 
-        private MutableSnapshot(AuditTimeWindow window) {
+        Accumulator(AuditTimeWindow window) {
             this.window = window;
         }
 
-        private void accept(AuditEventType eventType, JsonObject event) {
+        int entityCount() { return shops.size() + offers.size() + players.size() + items.size(); }
+
+        void accept(AuditEventType eventType, JsonObject event) {
+            validateEvent(eventType, event);
             switch (eventType) {
                 case BUY_SUCCESS -> acceptBuySuccess(event);
                 case BUY_FAILURE -> acceptBuyFailure(event);
                 case SELL_SUCCESS -> acceptSellSuccess(event);
                 case SELL_FAILURE -> acceptSellFailure(event);
                 case VISIBILITY_CHANGED -> acceptVisibilityChanged(event);
+                case STOCK_CHANGED -> stockChangeCount++;
+                case CONFIG_CHANGED -> {
+                    if ("applied".equals(readString(event, "phase"))) configChangeCount++;
+                }
             }
         }
 
@@ -264,7 +312,7 @@ public final class AuditStatsService {
             return stats;
         }
 
-        private AuditStatsSnapshot freeze() {
+        AuditStatsSnapshot freeze() {
             Map<String, AuditStatsSnapshot.ShopStats> frozenShops = new HashMap<>();
             for (Map.Entry<String, MutableShopStats> entry : shops.entrySet()) {
                 frozenShops.put(entry.getKey(), entry.getValue().freeze());
@@ -292,6 +340,8 @@ public final class AuditStatsService {
                     sellSuccessCount,
                     sellFailureCount,
                     visibilityChangeCount,
+                    stockChangeCount,
+                    configChangeCount,
                     totalSpent,
                     totalEarned,
                     frozenShops,

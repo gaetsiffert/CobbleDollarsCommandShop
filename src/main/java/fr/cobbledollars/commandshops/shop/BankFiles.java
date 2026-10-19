@@ -221,9 +221,13 @@ public final class BankFiles {
     static String createSyntaxShowcaseBankJson() {
         return """
                 {
-                  "conditions": {
-                    "player_tags_none": ["syntax_showcase_banned"]
-                  },
+                  "conditions": [
+                    {
+                      "player_tags_none": [
+                        "syntax_showcase_banned"
+                      ]
+                    }
+                  ],
                   "categories": [
                     {
                       "name": "Mixed Match",
@@ -269,11 +273,16 @@ public final class BankFiles {
                             ]
                           },
                           "price": 4,
-                          "conditions": {
-                            "scores_all": [
-                              { "objective": "reputation", "min": 10 }
-                            ]
-                          }
+                          "conditions": [
+                            {
+                              "scores_all": [
+                                {
+                                  "objective": "reputation",
+                                  "min": 10
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
@@ -287,17 +296,25 @@ public final class BankFiles {
                             ]
                           },
                           "price": 250,
-                          "conditions": {
-                            "player_tags_any": ["quest_debug"]
-                          }
+                          "conditions": [
+                            {
+                              "player_tags_any": [
+                                "quest_debug"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
                     {
                       "name": "Condition Matrix",
-                      "conditions": {
-                        "dimensions_any": ["minecraft:overworld"]
-                      },
+                      "conditions": [
+                        {
+                          "dimensions_any": [
+                            "minecraft:overworld"
+                          ]
+                        }
+                      ],
                       "offers": [
                         {
                           "match": {
@@ -306,12 +323,21 @@ public final class BankFiles {
                             ]
                           },
                           "price": 7,
-                          "conditions": {
-                            "advancements_any": ["minecraft:story/mine_stone"],
-                            "time_ranges_any": [
-                              { "start_tick": 12000, "end_tick": 23999 }
-                            ]
-                          }
+                          "conditions": [
+                            {
+                              "advancements_any": [
+                                "minecraft:story/mine_stone"
+                              ]
+                            },
+                            {
+                              "time_ranges_any": [
+                                {
+                                  "start_tick": 12000,
+                                  "end_tick": 23999
+                                }
+                              ]
+                            }
+                          ]
                         },
                         {
                           "match": {
@@ -320,21 +346,40 @@ public final class BankFiles {
                             ]
                           },
                           "price": 9,
-                          "conditions": {
-                            "advancements_all": [
-                              "minecraft:story/mine_diamond",
-                              "minecraft:story/enter_the_nether"
-                            ],
-                            "player_tags_all": ["syntax_showcase_access", "merchant_permit"]
-                          }
+                          "conditions": [
+                            {
+                              "player_tags_all": [
+                                "syntax_showcase_access"
+                              ]
+                            },
+                            {
+                              "player_tags_all": [
+                                "merchant_permit"
+                              ]
+                            },
+                            {
+                              "advancements_all": [
+                                "minecraft:story/mine_diamond"
+                              ]
+                            },
+                            {
+                              "advancements_all": [
+                                "minecraft:story/enter_the_nether"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
                     {
                       "name": "Mod Scoped",
-                      "conditions": {
-                        "player_tags_any": ["syntax_showcase_access"]
-                      },
+                      "conditions": [
+                        {
+                          "player_tags_any": [
+                            "syntax_showcase_access"
+                          ]
+                        }
+                      ],
                       "offers": [
                         {
                           "match": {
