@@ -7,12 +7,13 @@
 Server-side NeoForge addon for CobbleDollars on Minecraft `1.21.1`.
 NeoForge `21.1.230` or newer is required.
 
-Version `1.1.0` requires CobbleDollars `2.0.0+Beta-6.1+1.21.1` or newer. Its
+Version `1.1.1` requires CobbleDollars `2.0.0+Beta-6.1+1.21.1` or newer. Its
 configuration files, player stock, and optional client installation remain compatible.
-Clients with the optional addon installed should also update it to `1.1.0`.
+Clients with the optional addon installed should also update it to `1.1.1`.
 For CobbleDollars Beta 5.1, use addon version `1.0.2`.
 
-The [1.1.0 changelog](docs/changelogs/CHANGELOG_1.1.0.md) covers the new
+The [1.1.1 changelog](docs/changelogs/CHANGELOG_1.1.1.md) covers empty-shop fixes
+and expanded financial auditing. The [1.1.0 changelog](docs/changelogs/CHANGELOG_1.1.0.md) covers the new
 administrator panel, Audit browser, manual change histories and upgrade notes.
 
 This mod adds command-driven CobbleDollars shops with:
@@ -23,7 +24,8 @@ This mod adds command-driven CobbleDollars shops with:
 - a complete in-game configuration editor with contextual English/French help
 - runtime shop visibility controls and player stock management in the administrator panel
 - optional purchase bonuses when buying enough bundles in one transaction
-- structured audit logs for buys, sells, visibility, manual stock changes and configuration edits
+- structured audit logs for buys, sells, player transfers, administrative balance changes, visibility, manual stock changes and configuration edits
+- optional audit categories for battle rewards and native CobbleDollars merchant commerce (disabled by default)
 - a read-only Audit browser with filters, statistics and detailed transaction/change history
 - hot config reload with `/cdshops reload`
 - configurable player feedback through `feedback.json`, with or without the optional client layer
@@ -152,6 +154,15 @@ Disabling configuration history or all audit logging is durably recorded before 
 new setting takes effect on **Save**; toggling the draft alone changes no live setting.
 If that recording fails, the save is refused. External file reloads identify who ran
 the reload, rather than claiming to identify the person who edited the files.
+
+Player transfers and administrative `give`/`remove`/`set` balance changes are
+recorded by default. Battle rewards and native CobbleDollars purchases/sales have
+separate switches and are **disabled by default**. Financial history shows actual
+amounts and balances, includes both transfer participants, and keeps transfers
+separate from money creation/destruction. Existing logs remain readable.
+
+Empty custom shops display no default items, including for players without the
+optional client addon.
 
 Failed transactions are not recorded by default. Automatic refills and access denials
 are not recorded; the browser cannot reconstruct unrecorded actions. Deleted shops

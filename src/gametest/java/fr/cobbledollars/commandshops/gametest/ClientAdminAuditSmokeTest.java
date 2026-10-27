@@ -78,6 +78,7 @@ final class ClientAdminAuditSmokeTest {
                         "The previous journal page must restore its original cursor.");
                 verifyBufferedResponse(minecraft,screen);
                 verifyHistoryEvents(minecraft,screen);
+                verifyFinancialEvents(minecraft,screen);
                 require(draft.equals(screen.currentDraft()) && document.getDirtyCount()==1,
                         "Browsing audit discarded unsaved configuration edits.");
             }
@@ -85,7 +86,7 @@ final class ClientAdminAuditSmokeTest {
             Language.inject(previousLanguage);
             minecraft.setScreen(previous);
         }
-        CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_AUDIT_RESULT: PASS; six views, history event types, exact JSON/null details, operation links, cursor navigation, read-only drafts, buffered/stale responses and English/French help/geometry verified at two widths.");
+        CobbleDollarsCommandShopsMod.LOGGER.info("CLIENT_ADMIN_AUDIT_RESULT: PASS; six views, history and financial event types/defaults, participant links, exact JSON/null details, operation links, cursor navigation, read-only drafts, buffered/stale responses and English/French help/geometry verified at two widths.");
     }
 
     static void seed(CommandShopAdminScreen screen,String view,boolean details) throws Exception {
@@ -195,6 +196,54 @@ final class ClientAdminAuditSmokeTest {
     }
 
     @SuppressWarnings("unchecked")
+    private static void verifyFinancialEvents(Minecraft minecraft,CommandShopAdminScreen screen) throws Exception {
+        var fields=AdminConfigSchema.INSTANCE.getAudit().getFields().get("events").getSchema().getFields();
+        for (String type : List.of("player_transfer","balance_adjusted","battle_reward","native_buy_success","native_sell_success")) {
+            boolean expected=type.equals("player_transfer") || type.equals("balance_adjusted");
+            require(fields.containsKey(type) && JsonParser.parseString(fields.get(type).getSchema().getDefaultJson()).getAsBoolean()==expected,
+                    "Unexpected financial audit default: "+type);
+            require(net.minecraft.client.resources.language.I18n.exists("gui.cobbledollarscommandshops.admin.audit.option."+type),
+                    "Missing translated financial event: "+type);
+            seed(screen,"journal",false);
+            JsonObject event=JsonParser.parseString("""
+                    {"id":"money-event","timestamp":"2026-10-27T10:00:00Z","type":"player_transfer",
+                    "operation_id":"61000000-0000-0000-0000-000000000001",
+                    "player_uuid":"61000000-0000-0000-0000-000000000002","player_name":"Sender",
+                    "recipient_uuid":"61000000-0000-0000-0000-000000000003","recipient_name":"Recipient",
+                    "balance_before":"9007199254740993001","balance_after":"1",
+                    "recipient_balance_before":"0","recipient_balance_after":"9007199254740993000",
+                    "currency_amount":"9007199254740993000","currency_delta":"-9007199254740993000",
+                    "actor_name":"Server","action":"give","requested_amount":"9007199254740993000"}
+                    """).getAsJsonObject();
+            event.addProperty("type",type);
+            if (!type.equals("player_transfer")) {
+                for (String key : List.of("recipient_uuid","recipient_name","recipient_balance_before","recipient_balance_after")) event.remove(key);
+            }
+            if (type.startsWith("native_")) event.add("item_lines",JsonParser.parseString("[{\"item\":\"minecraft:apple\",\"count\":3}]"));
+            Object panel=field(screen,"audit");
+            setField(panel,"detail",event); invoke(screen,"rebuildForm");
+            for (int width : List.of(280,640)) verifyForm(minecraft,screen,width);
+            require(readOnlyValue(screen,tr("field.balance_before")).contains("9"),"Financial balance was not rendered.");
+            if (type.startsWith("native_")) for (UiComponent row : components(screen)) {
+                if (row.getClass().getSimpleName().equals("AdminActionRow")) require(
+                        !((String)field(row,"label")).endsWith("minecraft:apple"),
+                        "Native commerce must not link to command-shop-only item rankings.");
+            }
+            if (type.equals("player_transfer")) {
+                boolean linked=false;
+                for (UiComponent row : components(screen)) if (row.getClass().getSimpleName().equals("AdminActionRow")
+                        && ((String)field(row,"label")).endsWith(event.get("recipient_uuid").getAsString())) {
+                    ((List<Pair<String,Function0<?>>>)field(row,"actions")).getFirst().getSecond().invoke();
+                    linked=true; break;
+                }
+                require(linked && "players".equals(field(panel,"view"))
+                                && event.get("recipient_uuid").getAsString().equals(field(panel,"player")),
+                        "Transfer details must link the recipient's player profile.");
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
     private static void verifyForm(Minecraft minecraft,CommandShopAdminScreen screen,int width) throws Exception {
         UiForm form=(UiForm)field(screen,"form");
         form.layout(new UiRect(10,10,width,1200));
@@ -226,6 +275,10 @@ final class ClientAdminAuditSmokeTest {
                 "visibilityChangeCount":1,"stockChangeCount":1,"configChangeCount":1,"spent":"9007199254740993000","earned":"100","netFlow":"9007199254740992900"},"rows":[]}
                 """).getAsJsonObject();
         result.addProperty("view",view); result.addProperty("hasNext",next); result.addProperty("nextCursor",next ? "cursor-1" : "");
+        for (String key : List.of("transferCount","balanceAdjustmentCount","battleRewardCount","nativeBuySuccessCount","nativeSellSuccessCount"))
+            result.getAsJsonObject("summary").addProperty(key,1);
+        for (String key : List.of("transferred","adminAdded","adminRemoved","battleRewards","nativeSpent","nativeEarned"))
+            result.getAsJsonObject("summary").addProperty(key,"9007199254740993000");
         String row=switch(view) {
             case "shops" -> "{\"shopId\":\"demo\",\"spent\":\"250\",\"earned\":\"0\",\"buySuccessCount\":5,\"sellSuccessCount\":0,\"buyFailureCount\":0,\"sellFailureCount\":0,\"visibilityChangeCount\":1,\"id\":\"demo\",\"name\":\"demo\",\"volume\":\"250\"}";
             case "players" -> "{\"playerUuid\":\"50000000-0000-0000-0000-000000000001\",\"playerName\":\"12345\",\"spent\":\"250\",\"earned\":\"0\",\"boughtItemCount\":5,\"id\":\"50000000-0000-0000-0000-000000000001\",\"name\":\"12345\",\"volume\":\"250\"}";

@@ -901,9 +901,12 @@ public final class ClientUiState {
         Bank bank = getClientBank();
         if (bank != cachedNativeBank) {
             ArrayList<Offer> offers = new ArrayList<>();
-            for (Offer offer : bank.getOffers().keySet()) {
+            for (var entry : bank.getOffers().entrySet()) {
+                Offer offer = entry.getKey();
                 for (ItemStack stack : offer.getItems()) {
-                    offers.add(new Offer(stack, offer.getPrice(), -1));
+                    if (offer.hasItem(stack, entry.getValue())) {
+                        offers.add(new Offer(stack, offer.getPrice(), -1));
+                    }
                 }
             }
             cachedNativeBank = bank;

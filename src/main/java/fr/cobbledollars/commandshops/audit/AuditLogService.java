@@ -226,6 +226,70 @@ public final class AuditLogService {
         append(event);
     }
 
+    /** A transfer is one movement with two participants, never two independent sources/sinks. */
+    public static void logPlayerTransfer(UUID operationId, AuditBalanceChange sender, AuditBalanceChange recipient) {
+        if (!isEventEnabled(AuditEventType.PLAYER_TRANSFER)
+                || sender.player().uuid().equals(recipient.player().uuid())
+                || sender.delta().signum() >= 0 || !sender.delta().negate().equals(recipient.delta())) return;
+        JsonObject event = baseBalanceEvent(AuditEventType.PLAYER_TRANSFER, operationId, sender);
+        event.addProperty("currency_flow", "transfer");
+        event.addProperty("recipient_uuid", recipient.player().uuid().toString());
+        event.addProperty("recipient_name", recipient.player().name());
+        event.addProperty("recipient_balance_before", recipient.before().toString());
+        event.addProperty("recipient_balance_after", recipient.after().toString());
+        append(event);
+    }
+
+    public static void logBalanceAdjusted(UUID operationId, String actorName, String actorUuid,
+                                          BalanceAdjustmentAction action, BigInteger requestedAmount,
+                                          AuditBalanceChange change) {
+        if (!isEventEnabled(AuditEventType.BALANCE_ADJUSTED) || change.delta().signum() == 0) return;
+        JsonObject event = baseBalanceEvent(AuditEventType.BALANCE_ADJUSTED, operationId, change);
+        event.addProperty("actor_name", actorName);
+        event.addProperty("actor_uuid", actorUuid);
+        event.addProperty("action", action.eventName());
+        event.addProperty("requested_amount", requestedAmount.toString());
+        append(event);
+    }
+
+    public static void logBattleReward(UUID operationId, AuditBalanceChange change) {
+        if (!isEventEnabled(AuditEventType.BATTLE_REWARD) || change.delta().signum() <= 0) return;
+        append(baseBalanceEvent(AuditEventType.BATTLE_REWARD, operationId, change));
+    }
+
+    public static void logNativeBuySuccess(UUID operationId, AuditBalanceChange change,
+                                           List<ItemStack> items, String merchantUuid) {
+        if (!isEventEnabled(AuditEventType.NATIVE_BUY_SUCCESS) || change.delta().signum() >= 0) return;
+        appendNativeMovement(AuditEventType.NATIVE_BUY_SUCCESS, operationId, change, items, merchantUuid);
+    }
+
+    public static void logNativeSellSuccess(UUID operationId, AuditBalanceChange change,
+                                            List<ItemStack> items, String merchantUuid) {
+        if (!isEventEnabled(AuditEventType.NATIVE_SELL_SUCCESS) || change.delta().signum() <= 0) return;
+        appendNativeMovement(AuditEventType.NATIVE_SELL_SUCCESS, operationId, change, items, merchantUuid);
+    }
+
+    private static void appendNativeMovement(AuditEventType type, UUID operationId, AuditBalanceChange change,
+                                              List<ItemStack> items, String merchantUuid) {
+        JsonObject event = baseBalanceEvent(type, operationId, change);
+        event.add("item_lines", itemLinesFromStacks(items));
+        if (merchantUuid != null) event.addProperty("merchant_uuid", merchantUuid);
+        append(event);
+    }
+
+    private static JsonObject baseBalanceEvent(AuditEventType type, UUID operationId, AuditBalanceChange change) {
+        JsonObject event = baseEvent(type);
+        event.addProperty("operation_id", operationId.toString());
+        event.addProperty("player_uuid", change.player().uuid().toString());
+        event.addProperty("player_name", change.player().name());
+        event.addProperty("balance_before", change.before().toString());
+        event.addProperty("balance_after", change.after().toString());
+        event.addProperty("currency_delta", change.delta().toString());
+        event.addProperty("currency_amount", change.delta().abs().toString());
+        event.addProperty("currency_flow", change.delta().signum() > 0 ? "source" : "sink");
+        return event;
+    }
+
     public static void logVisibilityChanged(String shopId, boolean enabled, String reasonMessage, String actorName, String actorUuid) {
         if (!isEventEnabled(AuditEventType.VISIBILITY_CHANGED)) {
             return;
@@ -430,7 +494,7 @@ public final class AuditLogService {
         }
     }
 
-    private static boolean isEventEnabled(AuditEventType eventType) {
+    static boolean isEventEnabled(AuditEventType eventType) {
         synchronized (LOCK) {
             return config.isEnabled(eventType);
         }

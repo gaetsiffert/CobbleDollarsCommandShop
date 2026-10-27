@@ -63,17 +63,35 @@ class CobbleDollarsOffersTest {
 
     @Test
     void emptyCustomBankSurvivesNativeNetworkSerialization() {
+        assertEmptyBankRejectsEveryStack(BankDefinition.emptyBank());
         RegistryFriendlyByteBuf buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(),
                 RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
         try {
             Bank.DIRECT_STREAM_CODEC.encode(buffer, BankDefinition.emptyBank());
             Bank decoded = Bank.DIRECT_STREAM_CODEC.decode(buffer);
             assertFalse(decoded.getOffers().isEmpty());
-            assertEquals(0, decoded.countOffers());
-            assertFalse(decoded.contains(new ItemStack(Items.EMERALD)));
-            assertNull(decoded.getOffer(new ItemStack(Items.DIAMOND)));
+            assertEmptyBankRejectsEveryStack(decoded);
         } finally {
             buffer.release();
+        }
+    }
+
+    private static void assertEmptyBankRejectsEveryStack(Bank bank) {
+        assertFalse(bank.getOffers().isEmpty(), "Avoid the native global-bank fallback");
+        assertFalse(bank.contains(ItemStack.EMPTY), "Empty inventory slots must never glow green");
+        assertNull(bank.getOffer(ItemStack.EMPTY));
+        for (var item : BuiltInRegistries.ITEM) {
+            ItemStack stack = new ItemStack(item);
+            assertFalse(bank.contains(stack), () -> "Empty bank accepted " + BuiltInRegistries.ITEM.getKey(item));
+            assertNull(bank.getOffer(stack));
+        }
+        for (var item : List.of(Items.STONE, Items.DIAMOND_SWORD)) {
+            for (int maxStackSize : List.of(1, 16, 64, 99)) {
+                ItemStack stack = new ItemStack(item);
+                stack.set(DataComponents.MAX_STACK_SIZE, maxStackSize);
+                assertFalse(bank.contains(stack), "Component overrides must not satisfy the contradictory rule");
+                assertNull(bank.getOffer(stack));
+            }
         }
     }
 

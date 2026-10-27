@@ -188,6 +188,21 @@ public final class CommandShopAccessGameTests {
             UUID merchant = ((ShopMenu) player.containerMenu).getCobbleMerchant().getMerchantUUID();
             helper.assertTrue(CommandShopSessions.openCustomBank(player, merchant), "Bank open should be handled.");
             helper.assertTrue(player.containerMenu instanceof BankMenu, "Hidden bank categories must still allow opening bank.");
+            BankMenu bank = (BankMenu) player.containerMenu;
+            helper.assertTrue(!bank.getBankRef().getBank().contains(ItemStack.EMPTY), "Filtered banks must not highlight empty slots.");
+            var balanceBefore = fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt.getCobbleDollars(player);
+            bank.getBankContainer().setItem(0, new ItemStack(Items.EMERALD, 3));
+            CommandShopSessions.handleCustomSell(helper.getLevel().getServer(), player);
+            helper.assertValueEqual(3, bank.getBankContainer().getItem(0).getCount(), "Empty bank must not consume deposits.");
+            helper.assertValueEqual(balanceBefore, fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt.getCobbleDollars(player),
+                    "Empty bank must not change the balance.");
+            player.addTag("hidden");
+            CommandShopSessions.refreshPlayerSession(player);
+            helper.assertTrue(bank.getBankRef().getBank().contains(new ItemStack(Items.EMERALD)), "A newly visible bank offer must become sellable.");
+            player.removeTag("hidden");
+            CommandShopSessions.refreshPlayerSession(player);
+            helper.assertTrue(!bank.getBankRef().getBank().contains(ItemStack.EMPTY)
+                    && !bank.getBankRef().getBank().contains(new ItemStack(Items.EMERALD)), "Hiding the last offer must restore an empty bank.");
         } finally {
             cleanup(helper, player);
         }

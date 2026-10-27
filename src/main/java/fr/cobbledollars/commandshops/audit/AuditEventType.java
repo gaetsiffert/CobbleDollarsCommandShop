@@ -7,6 +7,11 @@ public enum AuditEventType {
     BUY_FAILURE(false),
     SELL_SUCCESS(true),
     SELL_FAILURE(false),
+    PLAYER_TRANSFER(true),
+    BALANCE_ADJUSTED(true),
+    BATTLE_REWARD(false),
+    NATIVE_BUY_SUCCESS(false),
+    NATIVE_SELL_SUCCESS(false),
     VISIBILITY_CHANGED(true),
     STOCK_CHANGED(true),
     CONFIG_CHANGED(true);

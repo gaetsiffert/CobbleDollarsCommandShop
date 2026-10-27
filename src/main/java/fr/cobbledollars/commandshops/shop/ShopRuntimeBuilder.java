@@ -35,7 +35,7 @@ final class ShopRuntimeBuilder {
             metrics.contextNanos += System.nanoTime() - phaseStartNanos;
         }
         if (!shopConditions.test(context)) {
-            return new ShopDefinition.RuntimeShopData(new Shop(List.of()), List.of(), 0, Long.MAX_VALUE, new ShopSessionSnapshot(List.of()));
+            return new ShopDefinition.RuntimeShopData(nativeShop(List.of()), List.of(), 0, Long.MAX_VALUE, new ShopSessionSnapshot(List.of()));
         }
 
         phaseStartNanos = metrics == null ? 0L : System.nanoTime();
@@ -114,12 +114,18 @@ final class ShopRuntimeBuilder {
         }
         List<ShopDefinition.RuntimeCategory> immutableRuntimeCategories = List.copyOf(runtimeCategories);
         return new ShopDefinition.RuntimeShopData(
-                new Shop(cobbleCategories),
+                nativeShop(cobbleCategories),
                 immutableRuntimeCategories,
                 visibleOfferCount,
                 nextVisibleRestockAtMillis,
                 new ShopSessionSnapshot(List.copyOf(snapshotCategories))
         );
+    }
+
+    private static Shop nativeShop(List<Category> categories) {
+        // Native clients replace a shop with no categories with their default
+        // shop. A category with no offers keeps it empty without a client addon.
+        return new Shop(categories.isEmpty() ? List.of(new Category("", List.of())) : categories);
     }
 
     private static List<PreparedCategory> prepareCategories(List<ShopCategoryDefinition> categories) {

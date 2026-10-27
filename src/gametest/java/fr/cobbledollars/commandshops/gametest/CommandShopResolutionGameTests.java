@@ -37,6 +37,48 @@ public final class CommandShopResolutionGameTests {
     private CommandShopResolutionGameTests() {
     }
 
+    @TestHolder(value = "empty_shops_do_not_fall_back_to_default_offers", title = "Empty command shops stay empty on native clients")
+    @GameTest(batch = "resolution.empty_shop", timeoutTicks = 80, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void empty_shops_do_not_fall_back_to_default_offers(ExtendedGameTestHelper helper) {
+        GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        ConditionSet hidden = new ConditionSet(List.of("missing_visibility_tag"), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of());
+        ShopOfferDefinition hiddenOffer = new ShopOfferDefinition("hidden", ItemMatchExpression.include(
+                new ItemMatchAtom.ExactItem(Items.STONE, "minecraft:stone")), 1, BigInteger.ONE, -1, null, hidden, List.of());
+        List<ShopDefinition> emptyShops = List.of(
+                new ShopDefinition("no_categories", List.of(), ConditionSet.NONE, null, Path.of("empty.json")),
+                new ShopDefinition("empty_category", List.of(new ShopCategoryDefinition("New category", List.of(), ConditionSet.NONE)),
+                        ConditionSet.NONE, null, Path.of("empty.json")),
+                new ShopDefinition("hidden_offer", List.of(new ShopCategoryDefinition("Hidden offer", List.of(hiddenOffer), ConditionSet.NONE)),
+                        ConditionSet.NONE, null, Path.of("empty.json")),
+                new ShopDefinition("hidden_category", List.of(new ShopCategoryDefinition("Hidden category", List.of(hiddenOffer), hidden)),
+                        ConditionSet.NONE, null, Path.of("empty.json")),
+                new ShopDefinition("denied_shop", List.of(), hidden, null, Path.of("empty.json"))
+        );
+        for (ShopDefinition shop : emptyShops) {
+            var runtime = shop.createRuntimeData(PlayerShopStockData.get(helper.getLevel().getServer()), player, 0L);
+            helper.assertTrue(!runtime.shop().getCategories().isEmpty(), shop.id() + ": native clients must not select their default shop.");
+            helper.assertValueEqual(0, runtime.shop().countOffers(), shop.id() + ": the native shop must contain no objects.");
+            helper.assertTrue(runtime.shop().getCategories().stream().allMatch(category -> category.getOffers().isEmpty()),
+                    shop.id() + ": the compatibility category must contain no purchasable offer.");
+            helper.assertTrue(runtime.categories().isEmpty(), shop.id() + ": compatibility categories must not enter logical offer resolution.");
+            helper.assertValueEqual(0, runtime.visibleOfferCount(), shop.id() + ": the runtime must count zero visible offers.");
+            helper.assertTrue(runtime.getResolvedOffer(0, 0) == null, shop.id() + ": stale offer indices must resolve to nothing.");
+        }
+
+        ShopOfferDefinition soldOut = new ShopOfferDefinition("sold_out", ItemMatchExpression.include(
+                new ItemMatchAtom.ExactItem(Items.STONE, "minecraft:stone")), 1, BigInteger.ONE, 0, null, ConditionSet.NONE, List.of());
+        ShopDefinition soldOutShop = new ShopDefinition("sold_out", List.of(
+                new ShopCategoryDefinition("Sold out", List.of(soldOut), ConditionSet.NONE)), ConditionSet.NONE, null, Path.of("sold_out.json"));
+        var soldOutRuntime = soldOutShop.createRuntimeData(PlayerShopStockData.get(helper.getLevel().getServer()), player, 0L);
+        helper.assertValueEqual(1, soldOutRuntime.visibleOfferCount(), "Sold-out offers must remain visible.");
+        helper.assertValueEqual(0, soldOutRuntime.getRuntimeOffer(0, 0).getStock(), "Sold-out offers must retain stock zero.");
+        helper.assertTrue("Sold out".equals(soldOutRuntime.shop().getCategories().getFirst().getName()),
+                "A nonempty runtime must retain its configured category instead of the compatibility category.");
+        helper.succeed();
+    }
+
     @TestHolder(
             value = "shop_runtime_prefers_specific_offer_for_duplicate_display_stack",
             title = "Shop runtime prefers the most specific duplicate offer",
@@ -156,7 +198,10 @@ public final class CommandShopResolutionGameTests {
     public static void empty_bank_does_not_fall_back_to_global_bank(ExtendedGameTestHelper helper) {
         var bank = BankDefinition.emptyBank();
         helper.assertTrue(!bank.getOffers().isEmpty(), "An empty custom bank must avoid the native global-bank fallback.");
-        helper.assertValueEqual(0, bank.countOffers(), "The bank must not advertise any sellable items.");
+        helper.assertTrue(!bank.contains(ItemStack.EMPTY), "Empty slots must not be highlighted as sellable.");
+        helper.assertTrue(bank.getOffer(ItemStack.EMPTY) == null, "An empty slot must not have a bank offer.");
+        helper.assertTrue(!bank.contains(new ItemStack(Items.STONE)), "The stone sentinel template must not be sellable.");
+        helper.assertTrue(!bank.contains(new ItemStack(Items.DIAMOND_SWORD)), "The sword sentinel template must not be sellable.");
         helper.assertTrue(!bank.contains(new ItemStack(Items.EMERALD)), "An empty custom bank must reject emeralds.");
         helper.assertTrue(bank.getOffer(new ItemStack(Items.DIAMOND)) == null, "An empty custom bank must not pay for diamonds.");
         helper.succeed();

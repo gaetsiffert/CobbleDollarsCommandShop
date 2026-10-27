@@ -162,7 +162,7 @@ public final class AuditQueryService {
         if (!q.shop().isBlank() && !q.shop().equalsIgnoreCase(string(event,"shop_id"))
                 && !arrayContains(event,"shop_ids",q.shop())) return false;
         if (!q.offer().isBlank() && !q.offer().equalsIgnoreCase(string(event,"offer_id"))) return false;
-        if (!q.player().isBlank() && !List.of("player_uuid","player_name","actor_uuid","actor_name").stream()
+        if (!q.player().isBlank() && !List.of("player_uuid","player_name","recipient_uuid","recipient_name","actor_uuid","actor_name").stream()
                 .anyMatch(key -> q.player().equalsIgnoreCase(string(event,key)))) return false;
         if (!q.item().isBlank()) {
             boolean found = q.item().equalsIgnoreCase(string(event,"item_id"));
@@ -194,7 +194,12 @@ public final class AuditQueryService {
             });
             case "players" -> stats.playersByUuid().values().forEach(value -> {
                 JsonObject row = record(value, value.playerUuid(), value.playerName(), value.totalVolume());
-                row.addProperty("operationCount", value.buySuccessCount() + value.sellSuccessCount()); rows.add(row);
+                for (String key : List.of("transferSent", "transferReceived", "adminAdded", "adminRemoved", "battleRewards", "nativeSpent", "nativeEarned"))
+                    row.addProperty(key, row.get(key).getAsString());
+                row.addProperty("operationCount", value.operationCount());
+                row.addProperty("moneyIn", value.moneyIn().toString());
+                row.addProperty("moneyOut", value.moneyOut().toString());
+                rows.add(row);
             });
             case "items" -> stats.itemsById().values().forEach(value -> {
                 JsonObject row = record(value, value.itemId(), value.itemName(), value.totalVolume());
@@ -224,6 +229,17 @@ public final class AuditQueryService {
         result.addProperty("configChangeCount", stats.configChangeCount());
         result.addProperty("spent", stats.totalSpent().toString()); result.addProperty("earned", stats.totalEarned().toString());
         result.addProperty("netFlow", stats.netFlow().toString());
+        result.addProperty("transferCount", stats.transferCount());
+        result.addProperty("balanceAdjustmentCount", stats.balanceAdjustmentCount());
+        result.addProperty("battleRewardCount", stats.battleRewardCount());
+        result.addProperty("nativeBuySuccessCount", stats.nativeBuySuccessCount());
+        result.addProperty("nativeSellSuccessCount", stats.nativeSellSuccessCount());
+        result.addProperty("transferred", stats.transferred().toString());
+        result.addProperty("adminAdded", stats.adminAdded().toString());
+        result.addProperty("adminRemoved", stats.adminRemoved().toString());
+        result.addProperty("battleRewards", stats.battleRewards().toString());
+        result.addProperty("nativeSpent", stats.nativeSpent().toString());
+        result.addProperty("nativeEarned", stats.nativeEarned().toString());
         return result;
     }
 

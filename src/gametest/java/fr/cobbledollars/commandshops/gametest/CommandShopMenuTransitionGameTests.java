@@ -1,5 +1,6 @@
 package fr.cobbledollars.commandshops.gametest;
 
+import java.math.BigInteger;
 import java.util.UUID;
 
 import fr.cobbledollars.commandshops.shop.CommandShopSessions;
@@ -7,9 +8,12 @@ import fr.cobbledollars.commandshops.shop.ShopRegistry;
 import fr.harmex.cobbledollars.common.network.handlers.server.CloseShopHandler;
 import fr.harmex.cobbledollars.common.network.handlers.server.OpenBankHandler;
 import fr.harmex.cobbledollars.common.network.handlers.server.OpenShopHandler;
+import fr.harmex.cobbledollars.common.network.handlers.server.BuyHandler;
+import fr.harmex.cobbledollars.common.network.packets.c2s.BuyPacket;
 import fr.harmex.cobbledollars.common.network.packets.c2s.CloseShopPacket;
 import fr.harmex.cobbledollars.common.network.packets.c2s.OpenBankPacket;
 import fr.harmex.cobbledollars.common.network.packets.c2s.OpenShopPacket;
+import fr.harmex.cobbledollars.common.utils.extensions.PlayerExtensionKt;
 import fr.harmex.cobbledollars.common.world.inventory.BankMenu;
 import fr.harmex.cobbledollars.common.world.inventory.ShopMenu;
 import net.minecraft.gametest.framework.GameTest;
@@ -30,6 +34,73 @@ import net.neoforged.testframework.gametest.GameTestPlayer;
 @ForEachTest(idPrefix = "menu_transition.", groups = "access", side = Dist.DEDICATED_SERVER)
 public final class CommandShopMenuTransitionGameTests {
     private CommandShopMenuTransitionGameTests() {
+    }
+
+    @TestHolder(value = "empty_shop_survives_native_transitions_and_offer_changes", title = "Empty shops survive native transitions and offer changes")
+    @GameTest(batch = "menu_transition.empty_shop", timeoutTicks = 100, setupTicks = 1)
+    @EmptyTemplate(value = "5x4x5", floor = true)
+    public static void empty_shop_survives_native_transitions_and_offer_changes(ExtendedGameTestHelper helper) throws Exception {
+        String shopId = "gametest_empty_shop_transitions";
+        String emptyJson = "{\"categories\":[{\"name\":\"Transition\",\"offers\":[]}]}";
+        String visibleJson = """
+                { "categories": [{ "name": "Transition", "offers": [
+                  { "id": "stone", "match": { "include": [{ "item": "minecraft:stone" }] }, "price": 1,
+                    "conditions": [{ "player_tags_all": ["show_offer"] }] }
+                ] }] }
+                """;
+        GameTestPlayer player = helper.makeTickingMockServerPlayerInCorner(GameType.SURVIVAL);
+        try {
+            prepareShop(helper, shopId);
+            CommandShopGameTestSupport.writeShopJson(shopId, emptyJson);
+            ShopRegistry.reload(helper.getLevel().registryAccess());
+            player.addTag("bank_access");
+            PlayerExtensionKt.setCobbleDollars(player, BigInteger.valueOf(100));
+            CommandShopSessions.openShop(player, ShopRegistry.getShop(shopId));
+            assertEmptyShop(helper, player);
+
+            UUID merchant = closeShopLikeNativeBankButton(helper, player);
+            OpenBankHandler.INSTANCE.handle(new OpenBankPacket(merchant), helper.getLevel().getServer(), player);
+            assertCustomBank(helper, player, merchant);
+            OpenShopHandler.INSTANCE.handle(new OpenShopPacket(merchant), helper.getLevel().getServer(), player);
+            assertEmptyShop(helper, player);
+
+            CommandShopGameTestSupport.writeShopJson(shopId, visibleJson);
+            ShopRegistry.reload(helper.getLevel().registryAccess());
+            CommandShopSessions.refreshPlayerSession(player);
+            assertEmptyShop(helper, player);
+            player.addTag("show_offer");
+            CommandShopSessions.refreshPlayerSession(player);
+            assertCustomShop(helper, player);
+            helper.assertValueEqual(1, ((ShopMenu) player.containerMenu).getShop().countOffers(), "Adding the first visible offer must restore it.");
+
+            player.removeTag("show_offer");
+            CommandShopSessions.refreshPlayerSession(player);
+            assertEmptyShop(helper, player);
+            player.addTag("show_offer");
+            CommandShopSessions.refreshPlayerSession(player);
+            ShopMenu populated = (ShopMenu) player.containerMenu;
+            var offer = populated.getShop().get(0).getOffers().getFirst();
+            BuyPacket staleBuy = new BuyPacket(offer, 0, 0, 0, 1, false, populated.getCobbleMerchant().getMerchantUUID());
+
+            CommandShopGameTestSupport.writeShopJson(shopId, emptyJson);
+            ShopRegistry.reload(helper.getLevel().registryAccess());
+            CommandShopSessions.refreshPlayerSession(player);
+            assertEmptyShop(helper, player);
+            BuyHandler.INSTANCE.handle(staleBuy, helper.getLevel().getServer(), player);
+            helper.assertTrue(BigInteger.valueOf(100).equals(PlayerExtensionKt.getCobbleDollars(player)),
+                    "A stale purchase after deleting the last offer must not debit the player.");
+            helper.assertTrue(player.getInventory().items.stream().noneMatch(stack -> stack.is(Items.STONE)),
+                    "A stale purchase after deleting the last offer must deliver no items.");
+
+            CommandShopGameTestSupport.writeShopJson(shopId, visibleJson);
+            ShopRegistry.reload(helper.getLevel().registryAccess());
+            CommandShopSessions.refreshPlayerSession(player);
+            assertCustomShop(helper, player);
+            helper.assertValueEqual(1, ((ShopMenu) player.containerMenu).getShop().countOffers(), "Re-adding an offer must replace the empty representation.");
+        } finally {
+            cleanup(helper, player, shopId);
+        }
+        helper.succeed();
     }
 
     @TestHolder(value = "native_bank_button_closes_shop_before_opening_bank", title = "Native bank button survives closing the shop")
@@ -269,6 +340,13 @@ public final class CommandShopMenuTransitionGameTests {
         BankMenu bank = (BankMenu) player.containerMenu;
         helper.assertTrue(merchant.equals(bank.getCobbleMerchant().getMerchantUUID()),
                 "The opened bank must belong to the command session, not the native fallback.");
+    }
+
+    private static void assertEmptyShop(ExtendedGameTestHelper helper, GameTestPlayer player) {
+        helper.assertTrue(player.containerMenu instanceof ShopMenu, "An empty command shop must still open a shop menu.");
+        ShopMenu shop = (ShopMenu) player.containerMenu;
+        helper.assertTrue(!shop.getShop().getCategories().isEmpty(), "An unmodified client must not fall back to its default shop.");
+        helper.assertValueEqual(0, shop.getShop().countOffers(), "An empty command shop must contain no objects.");
     }
 
     private static void assertCustomShop(ExtendedGameTestHelper helper, GameTestPlayer player) {

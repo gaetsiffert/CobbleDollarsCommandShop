@@ -54,6 +54,11 @@ public final class AuditFiles {
                     "buy_failure": false,
                     "sell_success": true,
                     "sell_failure": false,
+                    "player_transfer": true,
+                    "balance_adjusted": true,
+                    "battle_reward": false,
+                    "native_buy_success": false,
+                    "native_sell_success": false,
                     "visibility_changed": true,
                     "stock_changed": true,
                     "config_changed": true

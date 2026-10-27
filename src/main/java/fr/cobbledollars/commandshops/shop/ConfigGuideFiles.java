@@ -702,7 +702,12 @@ public final class ConfigGuideFiles {
                     "sell_failure": false,
                     "visibility_changed": true,
                     "stock_changed": true,
-                    "config_changed": true
+                    "config_changed": true,
+                    "player_transfer": true,
+                    "balance_adjusted": true,
+                    "battle_reward": false,
+                    "native_buy_success": false,
+                    "native_sell_success": false
                   }
                 }
                 ```
@@ -718,6 +723,11 @@ public final class ConfigGuideFiles {
                 - `visibility_changed`
                 - `stock_changed`
                 - `config_changed`
+                - `player_transfer`
+                - `balance_adjusted`
+                - `battle_reward`
+                - `native_buy_success`
+                - `native_sell_success`
 
                 `stock_changed` records only real manual administrator stock changes after they are saved:
                 setting the remaining stock, refilling offer variants, and refilling a shop. Each entry
@@ -748,6 +758,41 @@ public final class ConfigGuideFiles {
                 `/cdshops reload` first. Oversized JSON values retain a bounded preview,
                 the original byte size, SHA-256 fingerprint and explicit truncation flags.
 
+                ### Financial movements
+
+                `player_transfer` records one successful player payment with sender and recipient
+                identities, the actual amount and both balances before/after. Player filters match
+                either participant. Transfers move existing currency; they are not money creation
+                or destruction and do not change the command shop `netFlow` statistic.
+
+                `balance_adjusted` records actual balance changes from CobbleDollars `give`,
+                `remove` and `set` commands. It identifies the player or console actor, target,
+                action, requested amount and actual signed balance change. A withdrawal larger
+                than the balance records only the amount actually removed. Multitarget commands
+                share an `operation_id` and record each changed target separately.
+
+                Both categories are enabled by default, including when their keys are absent
+                from an existing config. Explicit settings are preserved.
+
+                `battle_reward`, `native_buy_success` and `native_sell_success` are **disabled by
+                default**. Enable them independently in **Settings / Audit** or `audit.json` to
+                record actual battle rewards after cancellation/multipliers and successful native
+                CobbleDollars merchant purchases/sales. Command shop transactions retain their
+                existing categories and are never duplicated as native commerce.
+
+                Financial entries preserve exact decimal amounts and balances as strings. Zero
+                changes, self-payments, failed/cancelled operations and save loading create no
+                financial movement. Generic external-mod balance writes and offline reward
+                reserves are outside this tracking scope.
+
+                Summary counters distinguish transfers, administrative credits/debits, battle
+                rewards and native commerce from existing command shop totals. Player profiles
+                show recorded incoming/outgoing totals and separate amounts by source. Native
+                events do not create synthetic command shop, offer or item rankings. The journal
+                links a transfer to both participant profiles and groups multitarget command
+                records by operation. Existing version 1 audit records and ZIP archives remain
+                readable without migration.
+
                 ## Optional Client Layer
 
                 If the same jar is installed on the client, this mod adds a thin CobbleDollars UI layer without moving any gameplay authority to the client.
@@ -769,7 +814,8 @@ public final class ConfigGuideFiles {
                 - Restock uses real time, not in-game day time.
                 - Config files are cached in memory.
                 - Use `/cdshops reload` after editing files.
-                - Custom shops only affect sessions opened through this addon.
+                - Custom shops control only sessions opened through this addon; optional financial auditing also observes the native operations documented above.
+                - Empty custom shops stay empty for clients with or without the addon; no default items are substituted.
                 - Exact `stack` matching includes data components.
                 - `mod` matches item registry namespaces.
                 - `match.exclude` only removes items from the current rule. A later rule can reintroduce them.

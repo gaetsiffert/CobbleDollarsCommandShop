@@ -131,6 +131,10 @@ public final class AuditStatsService {
 
     /** Validate before accumulation so a corrupt record cannot partially change totals. */
     static void validateEvent(AuditEventType type, JsonObject event) {
+        if (isEconomyEvent(type)) {
+            validateEconomyEvent(type, event);
+            return;
+        }
         if (type != AuditEventType.CONFIG_CHANGED) readString(event, "shop_id");
         if (type == AuditEventType.BUY_SUCCESS || type == AuditEventType.SELL_SUCCESS) {
             readString(event, "player_uuid");
@@ -144,6 +148,7 @@ public final class AuditStatsService {
             for (JsonElement element : readArray(event, "item_lines")) {
                 JsonObject line = element.getAsJsonObject();
                 readString(line, "item");
+                readOptionalString(line, "name", "");
                 readLong(line, "count", 0L);
                 readBigInteger(line, "line_total", BigInteger.ZERO);
             }
@@ -167,6 +172,61 @@ public final class AuditStatsService {
         }
     }
 
+    private static boolean isEconomyEvent(AuditEventType type) {
+        return switch (type) {
+            case PLAYER_TRANSFER, BALANCE_ADJUSTED, BATTLE_REWARD, NATIVE_BUY_SUCCESS, NATIVE_SELL_SUCCESS -> true;
+            default -> false;
+        };
+    }
+
+    private static BigInteger requiredMoney(JsonObject event, String field) {
+        return new BigInteger(readString(event, field));
+    }
+
+    private static void validateEconomyEvent(AuditEventType type, JsonObject event) {
+        readString(event, "operation_id");
+        readString(event, "player_uuid");
+        readString(event, "player_name");
+        BigInteger before = requiredMoney(event, "balance_before");
+        BigInteger after = requiredMoney(event, "balance_after");
+        BigInteger amount = requiredMoney(event, "currency_amount");
+        BigInteger delta = requiredMoney(event, "currency_delta");
+        if (amount.signum() <= 0 || !after.subtract(before).equals(delta) || !delta.abs().equals(amount))
+            throw new IllegalArgumentException("Inconsistent audit balance change.");
+        switch (type) {
+            case PLAYER_TRANSFER -> {
+                String recipient = readString(event, "recipient_uuid");
+                readString(event, "recipient_name");
+                BigInteger received = requiredMoney(event, "recipient_balance_after")
+                        .subtract(requiredMoney(event, "recipient_balance_before"));
+                if (recipient.equals(readString(event, "player_uuid")) || !delta.equals(amount.negate()) || !received.equals(amount))
+                    throw new IllegalArgumentException("Inconsistent audit transfer.");
+            }
+            case BALANCE_ADJUSTED -> {
+                readString(event, "actor_name");
+                readOptionalString(event, "actor_uuid", "");
+                String action = readString(event, "action");
+                if (!Set.of("give", "remove", "set").contains(action) || requiredMoney(event, "requested_amount").signum() < 0)
+                    throw new IllegalArgumentException("Invalid audit balance adjustment.");
+            }
+            case NATIVE_BUY_SUCCESS -> {
+                if (delta.signum() >= 0) throw new IllegalArgumentException("Invalid native purchase balance change.");
+            }
+            case BATTLE_REWARD, NATIVE_SELL_SUCCESS -> {
+                if (delta.signum() <= 0) throw new IllegalArgumentException("Invalid audit reward balance change.");
+            }
+            default -> throw new IllegalArgumentException("Not an economy event.");
+        }
+        if (type == AuditEventType.NATIVE_BUY_SUCCESS || type == AuditEventType.NATIVE_SELL_SUCCESS) {
+            for (JsonElement element : readArray(event, "item_lines")) {
+                JsonObject line = element.getAsJsonObject();
+                readString(line, "item");
+                readOptionalString(line, "name", "");
+                readLong(line, "count", 0L);
+            }
+        }
+    }
+
     static final class Accumulator {
         private final AuditTimeWindow window;
         private long buySuccessCount;
@@ -178,6 +238,17 @@ public final class AuditStatsService {
         private long configChangeCount;
         private BigInteger totalSpent = BigInteger.ZERO;
         private BigInteger totalEarned = BigInteger.ZERO;
+        private long transferCount;
+        private long balanceAdjustmentCount;
+        private long battleRewardCount;
+        private long nativeBuySuccessCount;
+        private long nativeSellSuccessCount;
+        private BigInteger transferred = BigInteger.ZERO;
+        private BigInteger adminAdded = BigInteger.ZERO;
+        private BigInteger adminRemoved = BigInteger.ZERO;
+        private BigInteger battleRewards = BigInteger.ZERO;
+        private BigInteger nativeSpent = BigInteger.ZERO;
+        private BigInteger nativeEarned = BigInteger.ZERO;
         private final Map<String, MutableShopStats> shops = new HashMap<>();
         private final Map<AuditStatsSnapshot.OfferKey, MutableOfferStats> offers = new HashMap<>();
         private final Map<String, MutablePlayerStats> players = new HashMap<>();
@@ -201,6 +272,53 @@ public final class AuditStatsService {
                 case CONFIG_CHANGED -> {
                     if ("applied".equals(readString(event, "phase"))) configChangeCount++;
                 }
+                case PLAYER_TRANSFER, BALANCE_ADJUSTED, BATTLE_REWARD, NATIVE_BUY_SUCCESS, NATIVE_SELL_SUCCESS -> acceptEconomyEvent(eventType, event);
+            }
+        }
+
+        private void acceptEconomyEvent(AuditEventType type, JsonObject event) {
+            MutablePlayerStats subject = player(readString(event, "player_uuid"), readString(event, "player_name"));
+            BigInteger amount = requiredMoney(event, "currency_amount");
+            switch (type) {
+                case PLAYER_TRANSFER -> {
+                    transferCount++;
+                    transferred = transferred.add(amount);
+                    subject.transferSentCount++;
+                    subject.transferSent = subject.transferSent.add(amount);
+                    MutablePlayerStats recipient = player(readString(event, "recipient_uuid"), readString(event, "recipient_name"));
+                    recipient.transferReceivedCount++;
+                    recipient.transferReceived = recipient.transferReceived.add(amount);
+                }
+                case BALANCE_ADJUSTED -> {
+                    balanceAdjustmentCount++;
+                    subject.balanceAdjustmentCount++;
+                    if (requiredMoney(event, "currency_delta").signum() > 0) {
+                        adminAdded = adminAdded.add(amount);
+                        subject.adminAdded = subject.adminAdded.add(amount);
+                    } else {
+                        adminRemoved = adminRemoved.add(amount);
+                        subject.adminRemoved = subject.adminRemoved.add(amount);
+                    }
+                }
+                case BATTLE_REWARD -> {
+                    battleRewardCount++;
+                    battleRewards = battleRewards.add(amount);
+                    subject.battleRewardCount++;
+                    subject.battleRewards = subject.battleRewards.add(amount);
+                }
+                case NATIVE_BUY_SUCCESS -> {
+                    nativeBuySuccessCount++;
+                    nativeSpent = nativeSpent.add(amount);
+                    subject.nativeBuySuccessCount++;
+                    subject.nativeSpent = subject.nativeSpent.add(amount);
+                }
+                case NATIVE_SELL_SUCCESS -> {
+                    nativeSellSuccessCount++;
+                    nativeEarned = nativeEarned.add(amount);
+                    subject.nativeSellSuccessCount++;
+                    subject.nativeEarned = subject.nativeEarned.add(amount);
+                }
+                default -> throw new IllegalArgumentException("Not an economy event.");
             }
         }
 
@@ -344,6 +462,17 @@ public final class AuditStatsService {
                     configChangeCount,
                     totalSpent,
                     totalEarned,
+                    transferCount,
+                    balanceAdjustmentCount,
+                    battleRewardCount,
+                    nativeBuySuccessCount,
+                    nativeSellSuccessCount,
+                    transferred,
+                    adminAdded,
+                    adminRemoved,
+                    battleRewards,
+                    nativeSpent,
+                    nativeEarned,
                     frozenShops,
                     frozenOffers,
                     frozenPlayers,
@@ -422,6 +551,19 @@ public final class AuditStatsService {
         private long sellFailureCount;
         private long boughtItemCount;
         private long soldItemCount;
+        private long transferSentCount;
+        private long transferReceivedCount;
+        private long balanceAdjustmentCount;
+        private long battleRewardCount;
+        private long nativeBuySuccessCount;
+        private long nativeSellSuccessCount;
+        private BigInteger transferSent = BigInteger.ZERO;
+        private BigInteger transferReceived = BigInteger.ZERO;
+        private BigInteger adminAdded = BigInteger.ZERO;
+        private BigInteger adminRemoved = BigInteger.ZERO;
+        private BigInteger battleRewards = BigInteger.ZERO;
+        private BigInteger nativeSpent = BigInteger.ZERO;
+        private BigInteger nativeEarned = BigInteger.ZERO;
 
         private MutablePlayerStats(String playerUuid, String playerName) {
             this.playerUuid = playerUuid;
@@ -447,7 +589,11 @@ public final class AuditStatsService {
         }
 
         private AuditStatsSnapshot.PlayerStats freeze() {
-            return new AuditStatsSnapshot.PlayerStats(playerUuid, playerName, spent, earned, buySuccessCount, buyFailureCount, sellSuccessCount, sellFailureCount, boughtItemCount, soldItemCount);
+            return new AuditStatsSnapshot.PlayerStats(playerUuid, playerName, spent, earned, buySuccessCount, buyFailureCount,
+                    sellSuccessCount, sellFailureCount, boughtItemCount, soldItemCount,
+                    transferSentCount, transferReceivedCount, balanceAdjustmentCount, battleRewardCount,
+                    nativeBuySuccessCount, nativeSellSuccessCount, transferSent, transferReceived,
+                    adminAdded, adminRemoved, battleRewards, nativeSpent, nativeEarned);
         }
     }
 

@@ -2,6 +2,7 @@ package fr.cobbledollars.commandshops.client.admin
 
 import com.google.gson.*
 import fr.cobbledollars.commandshops.audit.AuditQuery
+import fr.cobbledollars.commandshops.audit.AuditEventType
 import fr.cobbledollars.commandshops.client.ui.*
 import fr.cobbledollars.commandshops.client.ui.components.*
 import fr.cobbledollars.commandshops.client.ui.form.UiForm
@@ -145,7 +146,7 @@ internal class AdminAuditPanel(private val screen: CommandShopAdminScreen) {
             }
             input("shop", { shop }, { shop = it }); input("player", { player }, { player = it })
             input("item", { item }, { item = it }); input("offer", { offer }, { offer = it })
-            rows += choice(text("event"), event, listOf("all","buy_success","buy_failure","sell_success","sell_failure","visibility_changed","stock_changed","config_changed"),"help.event") { event = it; needsRebuild = true }
+            rows += choice(text("event"), event, listOf("all") + AuditEventType.entries.map { it.eventName() },"help.event") { event = it; needsRebuild = true }
             rows += AdminActionRow("", listOf(text("apply_filters") to { screen.commitAuditFields(); resetPage(); data = null; load() }),
                 actionHints = listOf(text("help.filters")))
         }
@@ -163,7 +164,7 @@ internal class AdminAuditPanel(private val screen: CommandShopAdminScreen) {
         if (state == null) return UiForm(rows, gap = 3)
         info(text("loaded_at", date(state.get("loadedAt").asLong)))
         if (!state.get("auditEnabled").asBoolean) info(text("disabled"), text("help.recording"), 0xFFCC88)
-        val missing = listOf("buy_success","buy_failure","sell_success","sell_failure","visibility_changed","stock_changed","config_changed")
+        val missing = AuditEventType.entries.map { it.eventName() }
             .filterNot { key -> state.getAsJsonArray("enabledEvents").any { it.asString == key } }
         if (missing.isNotEmpty()) info(text("not_recorded", missing.joinToString(", ", transform = ::option)), text("help.recording"), 0xFFCC88)
         val invalid = state.get("invalidLines").asInt; val unreadable = state.get("unreadableFiles").asInt
@@ -208,8 +209,11 @@ internal class AdminAuditPanel(private val screen: CommandShopAdminScreen) {
                 selected.getAsJsonArray("shop_ids")?.mapNotNull { it.takeIf(JsonElement::isJsonPrimitive)?.asString }
                     ?.distinct()?.forEach { related("shops",it) }
                 selected.get("player_uuid")?.asString?.let { related("players",it) }
+                selected.get("recipient_uuid")?.asString?.let { related("players",it) }
                 selected.get("offer_id")?.asString?.let { id -> selected.get("shop_id")?.asString?.let { related("offers", "$it/$id") } }
-                selected.getAsJsonArray("item_lines")?.mapNotNull { it.asJsonObject.get("item")?.asString }?.distinct()?.forEach { related("items",it) }
+                if (selected.get("type")?.asString !in setOf("native_buy_success", "native_sell_success")) {
+                    selected.getAsJsonArray("item_lines")?.mapNotNull { it.asJsonObject.get("item")?.asString }?.distinct()?.forEach { related("items",it) }
+                }
                 selected.get("item_id")?.takeIf(JsonElement::isJsonPrimitive)?.asString?.let { related("items",it) }
             }
         } else {
@@ -242,14 +246,15 @@ internal class AdminAuditPanel(private val screen: CommandShopAdminScreen) {
         add(label)
         add(row.get("id").asString)
         if (view == "journal") {
-            listOf("actor_name","player_name","shop_id","offer_id","stock_before","stock_after","file","path","change","phase")
+            listOf("actor_name","player_name","recipient_name","currency_amount","currency_delta","balance_before","balance_after",
+                "shop_id","offer_id","stock_before","stock_after","file","path","change","phase")
                 .forEach { key -> row.get(key)?.let { add(translated("field.$key",key) + ": " + valueText(key,it)) } }
         } else {
             add(text("field.volume") + ": " + valueText("volume", row.get("volume")))
             when (view) {
                 "players" -> {
-                    add(text("preview.player_in", valueText("earned", row.get("earned"))))
-                    add(text("preview.player_out", valueText("spent", row.get("spent"))))
+                    add(text("preview.player_in", valueText("moneyIn", row.get("moneyIn") ?: row.get("earned"))))
+                    add(text("preview.player_out", valueText("moneyOut", row.get("moneyOut") ?: row.get("spent"))))
                 }
                 "shops" -> {
                     add(text("preview.shop_in", valueText("spent", row.get("spent"))))
@@ -292,7 +297,9 @@ internal class AdminAuditPanel(private val screen: CommandShopAdminScreen) {
         }
         val raw = value.asString
         val numeric = key in setOf("spent","earned","netFlow","volume","currency_amount","bundle_count","item_count_total",
-            "stock_before","stock_after","count","unit_price","line_total","schema_version","change_count") || key.endsWith("Count")
+            "stock_before","stock_after","count","unit_price","line_total","schema_version","change_count",
+            "balance_before","balance_after","recipient_balance_before","recipient_balance_after","currency_delta","requested_amount",
+            "moneyIn","moneyOut","transferred","transferSent","transferReceived","adminAdded","adminRemoved","battleRewards","nativeSpent","nativeEarned") || key.endsWith("Count")
         return if (numeric) runCatching { java.text.NumberFormat.getIntegerInstance(locale()).format(BigInteger(raw)) }.getOrDefault(raw) else raw
     }
 

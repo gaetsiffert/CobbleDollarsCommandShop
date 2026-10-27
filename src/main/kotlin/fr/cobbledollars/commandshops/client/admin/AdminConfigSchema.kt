@@ -5,6 +5,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
+import fr.cobbledollars.commandshops.audit.AuditEventType
 
 /** Editor metadata only. The existing server parsers remain the source of validation. */
 data class ConfigField(val schema: ConfigSchema, val required: Boolean = false)
@@ -198,8 +199,8 @@ object AdminConfigSchema {
         .map { it to optional(feedbackEvent(it.endsWith("failure") || it == "shop_denied", it == "shop_denied")) }.toTypedArray())
     val audit = obj(
         "enabled" to optional(bool(true)), "flush_each_entry" to optional(bool(true)),
-        "events" to optional(obj(*listOf("buy_success", "buy_failure", "sell_success", "sell_failure", "visibility_changed", "stock_changed", "config_changed")
-            .map { it to optional(bool(!it.endsWith("failure"))) }.toTypedArray()))
+        "events" to optional(obj(*AuditEventType.entries
+            .map { it.configKey() to optional(bool(it.enabledByDefault())) }.toTypedArray()))
     )
     val commands = obj("allow_player_open" to optional(bool(true)))
 

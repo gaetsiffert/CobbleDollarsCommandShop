@@ -2,10 +2,10 @@
 
 CobbleDollars Command Shops is an addon for **CobbleDollars**. It adds **command-driven shops** that can be opened by name and fully managed on the server. The mod is built for servers that want more control over shop behavior, stock handling, access rules, and transaction logging without moving gameplay authority to the client.
 
-**Version 1.1.0** requires Minecraft **1.21.1**, NeoForge **21.1.230** or newer and CobbleDollars
+**Version 1.1.1** requires Minecraft **1.21.1**, NeoForge **21.1.230** or newer and CobbleDollars
 **2.0.0+Beta-6.1+1.21.1** or newer. Install the same addon version on the server and
 administrator clients; other players can use shops without the optional client addon.
-See the [1.1.0 changelog](changelogs/CHANGELOG_1.1.0.md) for upgrade notes.
+See the [1.1.1 changelog](changelogs/CHANGELOG_1.1.1.md) for upgrade notes.
 
 ## What it adds
 
@@ -23,6 +23,8 @@ See the [1.1.0 changelog](changelogs/CHANGELOG_1.1.0.md) for upgrade notes.
 - shop enable/disable controls at runtime
 - a complete administrator editor for shops, banks, feedback and audit settings
 - ordered shop/bank access conditions with a custom message for each failed rule
+- player transfer and administrative balance history, plus optional battle/native merchant auditing (disabled by default)
+- empty custom shops that show no default items, including without the client addon
 - a searchable Audit browser with statistics, transaction details and manual change history
 - contextual English/French help, click sounds and local feedback sound previews
 - server-side validation and persistent stock data

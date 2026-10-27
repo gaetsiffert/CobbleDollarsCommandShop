@@ -19,6 +19,17 @@ public record AuditStatsSnapshot(
         long configChangeCount,
         BigInteger totalSpent,
         BigInteger totalEarned,
+        long transferCount,
+        long balanceAdjustmentCount,
+        long battleRewardCount,
+        long nativeBuySuccessCount,
+        long nativeSellSuccessCount,
+        BigInteger transferred,
+        BigInteger adminAdded,
+        BigInteger adminRemoved,
+        BigInteger battleRewards,
+        BigInteger nativeSpent,
+        BigInteger nativeEarned,
         Map<String, ShopStats> shopsById,
         Map<OfferKey, OfferStats> offersByKey,
         Map<String, PlayerStats> playersByUuid,
@@ -27,6 +38,12 @@ public record AuditStatsSnapshot(
     public AuditStatsSnapshot {
         totalSpent = totalSpent == null ? BigInteger.ZERO : totalSpent;
         totalEarned = totalEarned == null ? BigInteger.ZERO : totalEarned;
+        transferred = transferred == null ? BigInteger.ZERO : transferred;
+        adminAdded = adminAdded == null ? BigInteger.ZERO : adminAdded;
+        adminRemoved = adminRemoved == null ? BigInteger.ZERO : adminRemoved;
+        battleRewards = battleRewards == null ? BigInteger.ZERO : battleRewards;
+        nativeSpent = nativeSpent == null ? BigInteger.ZERO : nativeSpent;
+        nativeEarned = nativeEarned == null ? BigInteger.ZERO : nativeEarned;
         shopsById = Map.copyOf(shopsById);
         offersByKey = Map.copyOf(offersByKey);
         playersByUuid = Map.copyOf(playersByUuid);
@@ -34,11 +51,17 @@ public record AuditStatsSnapshot(
     }
 
     public static AuditStatsSnapshot empty(AuditTimeWindow window) {
-        return new AuditStatsSnapshot(window, 0L, 0L, 0L, 0L, 0L, 0L, 0L, BigInteger.ZERO, BigInteger.ZERO, Map.of(), Map.of(), Map.of(), Map.of());
+        return new AuditStatsSnapshot(window, 0L, 0L, 0L, 0L, 0L, 0L, 0L,
+                BigInteger.ZERO, BigInteger.ZERO, 0L, 0L, 0L, 0L, 0L,
+                BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO,
+                Map.of(), Map.of(), Map.of(), Map.of());
     }
 
     public boolean hasData() {
-        return buySuccessCount > 0L || buyFailureCount > 0L || sellSuccessCount > 0L || sellFailureCount > 0L || visibilityChangeCount > 0L || stockChangeCount > 0L || configChangeCount > 0L;
+        return buySuccessCount > 0L || buyFailureCount > 0L || sellSuccessCount > 0L || sellFailureCount > 0L
+                || visibilityChangeCount > 0L || stockChangeCount > 0L || configChangeCount > 0L
+                || transferCount > 0L || balanceAdjustmentCount > 0L || battleRewardCount > 0L
+                || nativeBuySuccessCount > 0L || nativeSellSuccessCount > 0L;
     }
 
     public BigInteger netFlow() {
@@ -148,10 +171,36 @@ public record AuditStatsSnapshot(
             long sellSuccessCount,
             long sellFailureCount,
             long boughtItemCount,
-            long soldItemCount
+            long soldItemCount,
+            long transferSentCount,
+            long transferReceivedCount,
+            long balanceAdjustmentCount,
+            long battleRewardCount,
+            long nativeBuySuccessCount,
+            long nativeSellSuccessCount,
+            BigInteger transferSent,
+            BigInteger transferReceived,
+            BigInteger adminAdded,
+            BigInteger adminRemoved,
+            BigInteger battleRewards,
+            BigInteger nativeSpent,
+            BigInteger nativeEarned
     ) {
         public BigInteger totalVolume() {
-            return spent.add(earned);
+            return moneyIn().add(moneyOut());
+        }
+
+        public BigInteger moneyIn() {
+            return earned.add(transferReceived).add(adminAdded).add(battleRewards).add(nativeEarned);
+        }
+
+        public BigInteger moneyOut() {
+            return spent.add(transferSent).add(adminRemoved).add(nativeSpent);
+        }
+
+        public long operationCount() {
+            return buySuccessCount + sellSuccessCount + transferSentCount + transferReceivedCount
+                    + balanceAdjustmentCount + battleRewardCount + nativeBuySuccessCount + nativeSellSuccessCount;
         }
     }
 

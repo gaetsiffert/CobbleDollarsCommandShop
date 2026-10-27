@@ -219,6 +219,27 @@ directories; a client PASS alone does not prove the server's final persistence
 assertions passed. These opt-in helpers are part of the GameTest source set and
 are excluded from the distributed addon JAR.
 
+## 1.1.1 regression coverage
+
+- `EconomyAuditLogServerTest` checks configuration defaults, exact balance records,
+  console actors and independently enabled optional reward/native categories.
+- `AuditQueryServiceServerTest` mixes legacy records and new financial events in
+  active/ZIP logs, tests both transfer participants and rejects corrupt records
+  without partially changing statistics.
+- `CommandShopEconomyAuditGameTests` exercises real wrapped CobbleDollars
+  commands, native buy/sell handlers and battle reward attribution, including
+  amounts beyond 64 bits, clamped withdrawals, cancellation, income multipliers
+  and duplicate exclusion for command shops.
+- Empty-shop resolution and menu-transition GameTests cover filtered shops,
+  native bank roundtrips, last-offer deletion, re-addition and stale purchases.
+- The detached client smoke requires `CLIENT_EMPTY_SHOP_RESULT: PASS` and
+  `CLIENT_ADMIN_AUDIT_RESULT: PASS` in addition to the overall UI marker. It tests
+  native empty widgets both with and without optional metadata, all five financial
+  event forms/defaults and recipient-profile navigation in English and French.
+  This detached metadata check does not itself prove a client install without
+  the addon; any separate absent-addon verification is documented in the release
+  validation report.
+
 ## Performance harness
 
 The performance harness is intentionally separate from the standard suites. It exists to provide reproducible before/after measurements, not hard CI gates.

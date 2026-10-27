@@ -8,6 +8,16 @@ import java.nio.file.Path
 
 class AdminHelpCoverageTest {
     @Test
+    fun `financial audit settings preserve the approved defaults`() {
+        val fields = AdminConfigSchema.audit.fields.getValue("events").schema.fields
+        val expected = mapOf("player_transfer" to true, "balance_adjusted" to true,
+            "battle_reward" to false, "native_buy_success" to false, "native_sell_success" to false)
+        expected.forEach { (key, enabled) ->
+            assertEquals(enabled, JsonParser.parseString(fields.getValue(key).schema.defaultJson).asBoolean, key)
+        }
+    }
+
+    @Test
     fun `administrator messages have matching translations and arguments`() {
         val project = Path.of(System.getProperty("commandshops.projectDir", "."))
         val catalogs = listOf("en_us", "fr_fr").associateWith { language ->

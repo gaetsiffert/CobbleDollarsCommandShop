@@ -10,9 +10,11 @@ import fr.harmex.cobbledollars.common.api.bank.Bank;
 import fr.harmex.cobbledollars.common.api.shop.Offer;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponentPatch;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
 
 public final class BankDefinition {
@@ -67,10 +69,16 @@ public final class BankDefinition {
     }
 
     public static Bank emptyBank() {
-        // Native menus replace a bank with no entries by the global bank. An
-        // unmatchable entry preserves a genuinely empty custom bank on both sides.
-        Offer emptyOffer = new Offer(Ingredient.EMPTY, BigInteger.ZERO, DataComponentPatch.EMPTY, -1);
-        return new Bank(Map.of(emptyOffer, List.of()));
+        // Native menus replace a bank with no entries by the global bank.
+        // Ingredient.EMPTY matches empty slots and makes them glow green. Native
+        // Offer.hasItem checks every template's required components, so no stack
+        // can match both stone's max stack size (64) and a sword's (1). Vanilla
+        // ingredient values and this component rule survive the native codec;
+        // custom NeoForge ingredients do not. Keep the shared patch empty so
+        // each template retains its different default MAX_STACK_SIZE.
+        Offer emptyOffer = new Offer(Ingredient.of(Items.STONE, Items.DIAMOND_SWORD),
+                BigInteger.ZERO, DataComponentPatch.EMPTY, -1);
+        return new Bank(Map.of(emptyOffer, List.of(DataComponents.MAX_STACK_SIZE)));
     }
 
     public boolean hasPlayerStateConditions() {
